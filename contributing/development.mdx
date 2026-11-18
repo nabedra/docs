@@ -1,0 +1,68 @@
+---
+title: "Develop Nabedra"
+description: "Work in the monorepo and run native server and Python package checks."
+---
+
+Our policy follows [T3 Code's contribution policy](https://github.com/pingdotgg/t3code/blob/main/CONTRIBUTING.md),
+adapted for this repository.
+
+## Scope
+
+Outside contributions should fix bugs users can reproduce, including crashes,
+regressions and measured performance problems. Features, new language clients,
+storage providers, authentication methods and architectural changes need a
+maintainer request before a PR. Link that request. Small obvious fixes need no
+issue; larger fixes should link a bug report.
+
+Search existing issues and PRs first. Test an existing fix instead of opening a
+duplicate. Report bugs in [issues](https://github.com/zPy52/nabedra-database/issues).
+Propose features there for discussion before implementing them.
+
+## Pull requests
+
+Fix one problem per PR, including its necessary server, client, test and doc
+changes. Explain the reproduction, verification commands and observed results.
+Include before/after media for visual changes and name AI models that wrote code.
+Following T3 Code, code from Gemini or Muse Wonder is not accepted; Muse Wonder
+Full and reviews by those models are allowed.
+
+Keep at most three PRs open and resolve conflicts within seven days. Review and
+merge are discretionary. Avoid automated spam, repeated pings and attempts to
+bypass limits. If a PR closes, address its reason and request reconsideration
+there or link a focused replacement.
+
+## Development checks
+
+The [server](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/README.md) and [Python ORM](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/orm/python/README.md) guides cover
+setup. Run commands from the repository root. Keep build outputs, credentials,
+local installations and generated acceptance reports out of commits.
+
+For Python changes, install the checkout with the gateway extra and run:
+
+```sh
+python3.11 -m venv orm/python/.venv
+orm/python/.venv/bin/python -m pip install -e './orm/python[gateway]'
+orm/python/.venv/bin/python -m unittest discover -s orm/python/tests -v
+orm/python/.venv/bin/python -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+For Rust changes, run these checks sequentially:
+
+```sh
+export CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+cargo fmt --manifest-path server/Cargo.toml --all -- --check
+cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path server/Cargo.toml
+```
+
+These commands use the default OLAP features. For OLTP, pass `--no-default-features --features oltp` to Clippy and tests. Check both engines when changing shared code.
+
+Changes to worker execution or recovery must follow [AGENTS.md](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/AGENTS.md),
+the [scheduling plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md) and the
+[scheduler test contract](/contributing/scheduler-contract). Cite scenario IDs
+in test evidence, distinguish executed checks from untested behavior, and add
+regression cases for new failures.
+
+Shared test contracts and historical evidence stay in `docs/testing/`. Put
+component setup and API documentation beside the component. The root README
+should remain a repository map.

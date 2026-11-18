@@ -1,0 +1,75 @@
+---
+title: "Scheduler test contract"
+description: "Check request admission, worker failures, publication, recovery, and provisioning against recorded scenarios."
+---
+
+These reusable acceptance cases preserve the user's worker, queue, utilization, and fault-tolerance requirements from 2026-11-15. They specify future tests, not executed results. Use them for future scheduler, worker, storage, and autoscaling changes alongside [the design contract](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md).
+
+The queue lives in replicated worker memory. Retain accepted work through individual failures while a request copy survives. A complete worker shutdown abandons outstanding work; it does not roll back committed data. Test assertions must distinguish those outcomes from silent loss.
+
+---
+
+Use deterministic worker barriers, an injectable clock, event traces, reproducible payload generators, and a serial result oracle. Assert actual overlap and completion identities, not a successful HTTP status alone. Unit tests exercise pure scheduling/resource transitions; process tests use real API/worker TCP and a local conditional object store. S3 and provider acceptance require their real integrations separately.
+
+For a fixed run and observation point, every accepted request is in exactly one logical state: queued, running, committing, reconciling, or terminal. Track terminal identities after bounded response retention expires. No request may have conflicting terminal decisions, and no logical mutation may publish twice. Rejected submissions are counted separately. Every resource reservation has exactly one owner and one settlement; network retries do not duplicate reservations. Apply these invariants after every generated event and injected failure.
+
+| ID | Scenario | Required observation |
+| --- | --- | --- |
+| C01 | Workers advertise 1, 2, and 4 compute threads with different RAM limits | Negotiated node limits remain distinct; ready capacity matches the actual pools. |
+| C02 | Zero/overflowing thread counts, contradictory memory limits, forged capacity, and stale incarnations | Reject before readiness; no leaked membership, queue, or resource charges. |
+| C03 | Reconfigure or restart a node with a new thread limit while retaining the same partition files | New validated capacity applies; worker count does not alter table contents or partition identities. |
+| C04 | One request over 100 partitions; request caps 1, 2, and 3 | Each worker executes multiple partitions; simultaneously allocated compute nodes never exceed the cap, including reduction. |
+| C05 | Two large queries start together; add small queries during execution | Traces prove overlap and eventual progress for every eligible request; results match the serial oracle. |
+| C06 | Heterogeneous partition runtimes, skewed keys, one delayed worker | Freed slots take eligible work without waiting for an entire dispatch window; enforce caps while balancing actual capacity. |
+| C07 | More requests than compute slots; remote coordinators and reductions share a saturated cluster | Child-job waits consume no compute permits; reductions, control traffic, and settlement progress without deadlock. |
+| M01 | Large strings, wide rows, high allocation overhead, extreme metadata, and partitions at file limits | Check input/decoded/sort/encode/output budgets before growth; typed failure releases only the task's resources. |
+| M02 | Many memory-heavy jobs below their individual limits | The combined working memory, queue replicas, results, and control reserve stay within each node's charged limit; record actual peak RSS separately. |
+| M03 | A job fits no worker, then a job temporarily cannot fit because other jobs hold memory | The impossible job fails explicitly; the temporary one progresses after bounded bypass/aging without blocking all smaller work. |
+| Q01 | Saturate CPU while submitting 1,000 valid mixed requests within admission byte/count limits | Every accepted ID remains tracked and eventually terminates after barriers release; zero missing or duplicate logical outcomes. |
+| Q02 | Fill request-count and replica-byte limits independently, then send more work | Additional submissions wait within the ingress deadline or receive explicit pre-acceptance overload; existing accepted work is retained. |
+| Q03 | Pause a replica before its installation acknowledgment; fail the submitting coordinator | No acceptance acknowledgment precedes required replication; a surviving complete copy can recover; incomplete copies cannot fabricate acceptance or data. |
+| Q04 | Close client sockets and restart the API with accepted work queued/running | Workers retain requests; another API reconnects to the same run and receipts; no automatic duplicate submission. |
+| Q05 | Same request ID/body submitted simultaneously through two APIs; repeat with another body | One logical execution/receipt for identical identities, explicit conflict for a different body; one mutation decision. |
+| Q06 | Expire retained query results and lose a terminal response | Report explicit expiration or recompute from the pinned read snapshot when supported; reconcile mutation decisions; never silently execute a new logical mutation. |
+| F01 | A task returns each ordinary validation, storage, codec, and resource error while unrelated tasks are gated | Unrelated requests still complete correctly; only dependent mutation siblings are cancelled; pool accepts subsequent work. |
+| F02 | Inject an unwinding panic inside a task with owned buffers, then submit another task to that executor | The outer boundary contains it, settles the task, and leaves unrelated jobs and the executor usable; no poisoned global scheduler lock. |
+| F03 | Cancel or time out at reservation, dispatch, receipt, reduction, and cleanup boundaries | All owned work settles once; compute and byte counters return to baseline; no dependency is abandoned while still active. |
+| R01 | Kill a coordinator or a compute worker while another worker retains request state | Same-run recovery completes/reconciles accepted requests without duplicate publication; old attempts cannot deliver authoritative results. |
+| R02 | Sequentially stop workers until only one queue holder remains, with queued and running requests | Outstanding requests remain on that holder; membership changes and capacity reductions do not lose them. Availability may wait for safe ownership. |
+| R03 | Rolling restart with a joiner receiving outstanding queue state | Keep the run; copy before readiness and transfer before the previous last holder exits. |
+| R04 | Stop every worker with pending work; cold-start against the same object store | New run has no pending old work; old receipts report abandonment unless a durable commit decision proves success; committed rows remain. |
+| R05 | Network partition, delayed heartbeat, scheduler takeover, and a formerly paused owner resuming | Missed heartbeats alone do not imply cold shutdown; authoritative term/run fencing prevents conflicting publication; no unbounded replacement attempts. |
+| R06 | Abort/OS-kill the whole worker process; repeat with resource-limited executor processes if implemented | Other nodes retain accepted copies and committed data. Claim within-node abort/OOM isolation only when a tested process boundary provides it. |
+| T01 | Multi-partition mutation with failure injected into each preparation stage | Catalog and visible rows remain unchanged; no partial partition set becomes visible. |
+| T02 | Fail upload before the first file, between files, and before catalog submission | Unreferenced final-key files never become live by listing; restart opens the previous committed state. |
+| T03 | Concurrent mutations capture the same catalog, including same-key conflicts and different-table changes | CAS losers recompute; resulting decisions and rows match a permitted serial order without lost updates. |
+| T04 | Catalog PUT applies, response is lost, then the coordinator/API restarts | Recover the committed decision; no second application and no false `not_applied` response. |
+| T05 | Catalog PUT remains delayed while all workers stop and a new-run fence commits | An old PUT ordered after the fence fails. A PUT ordered before it may commit and must remain visible; no claimed rollback of that commit. |
+| T06 | No-op, empty batch, conflict, oversized result, create/drop, and stale table handles | Preserve existing operation semantics and stable replay outcomes through the shared transaction path. |
+| U01 | Run identical operation, saturation, and failure scenarios through local `serve` and separate API/workers | Same queue, admission, transaction, and recovery contracts and results; only topology differs. |
+| U02 | Permute malformed JSON, duplicate fields, deep predicates, wrong types, huge limits, invalid auth, truncated frames, and replayed attempts during saturation | Bounded parsing/admission and deterministic typed errors; valid unrelated work progresses; malformed traffic creates no accepted work or charge leak. |
+| U03 | Randomized seeded event sequences: arrivals, completions, memory changes, joins, drains, failures, retries and cancellations | Assert conservation, caps, fencing, state transitions, and serial result correctness after every event; minimize and retain failing seeds. |
+| A01 | Manual/fixed cluster with no provider adapter; request autoscaling | Explicit unsupported configuration or request; queue behavior is unchanged and no provisioning is invented. |
+| A02 | Configured provider scales up/down, then provisioning fails or a drain overlaps queued/running work | Copies transfer before removal, dependent work settles, termination requires evidence, and no accepted request disappears. |
+| B01 | Controlled CPU-bound workload with enough independent jobs, requests, and memory on a machine with known CPU quota | After warm-up, no eligible free slot remains idle beyond one scheduling/transport turn; report occupied slots and measured CPU usage against available quota. |
+| B02 | Mixed CPU/memory/I/O workloads, worker/request caps, and unequal node sizes at increasing arrival rates | Report completed throughput, queue wait, completion latency, memory peaks, rejections, retry work, and accepted-ID conservation; distinguish CPU saturation from I/O wait. |
+
+---
+
+R03/Q03 regression: a joining worker must finish an empty queue snapshot, copy a single-record queue, and consume every page of a multi-record queue before readiness. Assert the completion flag on empty, intermediate, final and exhausted pages. Re-fetching an empty page indefinitely or treating a “more pages” flag as “complete” must fail the test. The process fixture must also join while accepted work remains outstanding, since helper-only snapshot tests do not establish worker bootstrap.
+
+C07/M02 regression: overlap a small receipt lookup or stats reply with request installation and terminal replication. Charge the actual bounded control message representation and keep control progress available; reserving a maximum-sized reply for each tiny message must not exhaust the control reserve and reject an otherwise valid first operation. Assert the resulting receipt and terminal value, not only installation HTTP statuses.
+
+Q01/B02 fixture regression: bound concurrent clients, retry backoff and receipt polling so observation does not create an unreported connection storm. Retain every acknowledged identity and its oracle even when the host exhausts sockets. Record host transport failures separately from HTTP rejection and accepted terminal failures. Set an explicit finite result-retention interval long enough for the declared arrival schedule, or capture each terminal result before expiry; an expired query receipt is not evidence that an accepted request silently disappeared.
+
+C07/B02 peer-control regression: overlap partition dependency opens with receipt and settlement traffic at the bounded control limit. An unsigned overload response is an uncertain transport outcome, not malformed query data. Retry with fresh signed contexts for the same permit/operation/admission, retain original ownership through checked settlement, and bound exhaustion. Unsigned success and forged signatures must still fail validation.
+
+Q06/T04 receipt-race regression: stop terminal replication after the local queue has stored its terminal result and the mutation decision is durable. Perform a fresh authorized receipt lookup before every ready replica acknowledges that terminal version. The lookup must reuse the matching immutable terminal record and finish replication without calling the nonterminal completion transition again. Assert the exact result, one durable decision, unchanged accepted credential snapshot and eventual replica agreement. A different body, storage identity or terminal value must still conflict. Release and join the original replication task at deterministic barriers; no accepted request or resource charge may be lost.
+
+Q04/Q06 receipt-observation regression: inject a transient lookup failure after acceptance, then return the original terminal receipt. The synchronous API may recover through a finite, deadline-bounded sequence of fresh-authority receipt observations, but must submit the operation exactly once. Assert unchanged run/request/context, bounded backoff and exhaustion, and no renewal of accepted work or retained-result expiry. Authorization, validation, identity conflict, expiration and malformed signed replies must retain their distinct failure behavior rather than enter an unconditional retry loop.
+
+For fairness fixtures with equal-sized jobs, release exactly one slot at a time. Every continuously eligible request must receive a dispatch within one fair round of peers; test the 32-round aging bound separately for unfit memory-heavy jobs. Assert no feasible slot is left unused after the scheduler processes the triggering event. Do not use sleep timing as proof of overlap or fairness.
+
+Benchmark runs record commit/configuration, seed, CPU quota and core count, worker thread limits, OS, RAM, partition encoded/decoded sizes, payload distribution, and arrival schedule. Use a warm-up plus at least three measured repetitions. Record p50/p95/p99 queue and completion latency, throughput, per-worker compute-slot occupancy, CPU time, peak RSS, charged bytes, result/queue bytes, network bytes, CAS conflicts, retry work, rejections, and lost/duplicate identities. Show utilization and latency distributions without inventing a speedup target or treating 100% RAM as a pass criterion.
+
+Execute every fault at deterministic before/after barriers, including fully transmitted but unacknowledged messages. Bound test watchdogs, join all owned processes/threads, and verify cleanup. Run CPU-heavy and failure-containment fixtures with independent observer/control capacity. Local conditional-store evidence does not establish AWS consistency or Kubernetes lifecycle behavior; retain provider-specific acceptance separately.

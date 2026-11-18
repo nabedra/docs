@@ -1,0 +1,109 @@
+---
+title: "Connect from Python"
+description: "Install the synchronous ORM and configure a URL, bearer token, database selector, and TLS trust."
+---
+
+Install from PyPI with Python 3.11+:
+
+```sh
+python3.11 -m pip install "nabedra[database]"
+export NABEDRA_TOKEN='<same-token-configured-on-your-server>'
+```
+
+The distribution is named `nabedra`; Python imports also use `nabedra`.
+The `database` extra adds no dependencies because the ORM uses the standard
+library. `pip install nabedra` includes the same ORM and CLI. Optional
+`nabedra[gateway]` and `nabedra[aws]` installs add HTTPX and Boto3 respectively;
+use `nabedra[database,gateway,aws]` when you need both integrations.
+
+The Python package does not bundle the Rust server. To run a server locally,
+install the published crate separately with Cargo:
+
+```sh
+cargo install nabedra-database --version 0.1.1 --locked
+nabedra-db --version
+```
+
+The published Python 0.1.0 CLI expects the previous server executable name.
+To use `nabedra database serve` with `nabedra-db`, install the updated CLI
+from this checkout with the [repository installer](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/scripts/install_nabedra.py).
+The Python ORM can connect to the renamed server without a CLI update.
+
+For development, run `python3.11 -m pip install -e ./orm/python` from the repository
+root instead of installing from PyPI.
+
+## Read and write a table
+
+Replace the token placeholder in your environment. The example below assumes
+the server is already listening at `http://127.0.0.1:8000`. Use its actual base
+URL if different. Start with an unused table name; creating an existing name
+raises `ConflictError`.
+
+```python
+from nabedra import Database, col
+
+db = Database(url="http://127.0.0.1:8000", mode="olap")
+users = db.create_table(
+    "guide_users", {"id": str, "age": int, "active": bool}, key="id"
+)
+users.insert({"id": "alice", "age": 24, "active": True})
+inserted = users.insert_many(
+    {"id": name, "age": age, "active": True}
+    for name, age in [("bob", 17), ("carol", 30)]
+)  # 2
+alice = users.get("alice")  # complete row, or None if missing
+updated = users.update("alice", {"age": 25})  # True
+users.upsert({"id": "carol", "age": 31, "active": False})
+
+adults = users.where(
+    (col("age") >= 18) & ((col("active") == True) | ~(col("id") == "carol"))
+)
+query = adults.select("id", "age").order_by("age", desc=True).limit(100)
+rows = query.collect()  # [{"id": "alice", "age": 25}]
+count = query.count()  # 1, including the limit
+plan = query.explain()  # textual plan from metadata, without a row scan
+
+same_table = db.table("guide_users")  # discover by name, retaining its ID
+tables = db.tables()  # handles sorted by name
+deleted = users.delete("bob")  # True; a second delete returns False
+```
+
+## Connection parameters
+
+`Database(url, token=None, *, mode="oltp", timeout=30.0, ca_file=None, database=None)` validates configuration
+without sending a request. Supply an absolute HTTP or HTTPS base URL without
+embedded credentials, query or fragment. The client appends `/v1/operations` to
+its base path. If omitted, `token` comes from `NABEDRA_TOKEN`. Construction is
+allowed without a token, but an operation raises `AuthenticationError` locally
+until credentials are supplied through a new client. An explicit token must be
+a nonempty safe bearer token string.
+
+`mode` accepts `"olap"` and `"oltp"` and defaults to `"oltp"`. The read-only
+`db.mode` property records this workload preference. Both modes use the same HTTP operation protocol. The server build determines the actual engine. `DB` remains a convenience alias for
+`Database` within `nabedra`.
+An optional `database` selector accompanies operations and receipt polling.
+The application gateway treats it as untrusted input and authorizes access;
+the selector itself grants no storage permissions.
+
+## TLS and timeouts
+
+HTTPS verifies certificates and hostnames using the system trust roots. For a
+private CA, supply an additional PEM CA file:
+
+```python
+import os
+from nabedra import Database
+
+db = Database(
+    url="https://nabedra.example.com",
+    token=os.environ["NABEDRA_TOKEN"],
+    mode="oltp",
+    timeout=10.0,
+    ca_file="/path/to/nabedra-ca.pem",
+)
+```
+
+`ca_file` adds trust roots and does not disable verification. It defaults to
+`None`. `timeout` accepts a positive finite `int` or `float`, excluding `bool`,
+and defaults to 30 seconds. It applies to blocking socket I/O, not a whole
+operation deadline, cancellation or a server transaction deadline. The client follows no redirects. Ordinary ORM calls perform no automatic retries. [OLAP streams](/python/streaming) use bounded replay of the same batch identity.

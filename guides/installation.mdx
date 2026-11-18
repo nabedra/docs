@@ -1,0 +1,83 @@
+---
+title: "Installation"
+description: "Choose published packages or build the OLAP server, OLTP server, and Python client from source."
+---
+
+## Package and checkout support
+
+| Component | Published package covered here | Build or install from the source checkout for |
+| --- | --- | --- |
+| Rust server | `nabedra-database` 0.1.1 on crates.io, installed as `nabedra-db` | Engine choice, local OLTP, newer OLAP streaming, and offline data interchange |
+| Python | `nabedra` 0.1.0 on PyPI, imported as `nabedra` | The renamed server launcher, current streaming APIs, and Events |
+| Events broker | Build the standalone `nabedra-events` crate or image | Broker, fixture generator, and AWS Terraform |
+
+The source checkout still declares those Rust and Python version numbers. Use the documented commit or a newer verified revision, and check `nabedra-db --version` to confirm the engine. The published native release predates engine-specific builds.
+
+## Install the Python package
+
+<CodeGroup>
+
+```bash PyPI
+python3.11 -m venv .venv
+.venv/bin/python -m pip install 'nabedra==0.1.0'
+```
+
+```bash Local checkout
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -e ./orm/python
+```
+
+</CodeGroup>
+
+The core package has no third-party runtime dependencies. `database` is a dependency-free extra. With the source checkout, use `./orm/python[arrow]` for PyArrow, `./orm/python[gateway]` for HTTPX, `./orm/python[aws]` for Boto3, or `./orm/python[eks-replacement]` for Boto3 and cryptography. Quote the argument in shells that expand brackets.
+
+## Install the native server
+
+Use Rust 1.94.1 or newer with Cargo. Choose one build per binary. Save each binary under a separate path before switching build features in the same target directory.
+
+<CodeGroup>
+
+```bash Published OLAP
+cargo install nabedra-database --version 0.1.1 --locked
+nabedra-db --version
+```
+
+```bash Checkout OLAP with S3
+cargo build --locked --release --manifest-path server/Cargo.toml
+server/target/release/nabedra-db --version
+```
+
+```bash Checkout OLTP
+cargo build --locked --release --manifest-path server/Cargo.toml \
+  --no-default-features --features oltp
+server/target/release/nabedra-db --version
+```
+
+</CodeGroup>
+
+The OLTP build needs a C++ compiler, CMake, and libclang for RocksDB. On Debian, install `build-essential cmake clang libclang-dev`. On macOS, install the Xcode command line tools and make CMake and libclang available to the compiler and bindgen.
+
+| Features | Use case |
+| --- | --- |
+| `olap,s3` | Default build with S3 support |
+| `olap` | OLAP without AWS dependencies, including HTTP object-store test fixtures |
+| `oltp` | RocksDB OLTP without AWS dependencies |
+| `oltp-backup-s3` | OLTP with the optional S3 backup repository |
+
+Builds with both engines or neither engine are rejected. The `--all-features` Cargo switch selects both engines. From the checkout, run `python3.11 scripts/check_engine_features.py --dependencies-only` to inspect the dependency graph for each supported selection.
+
+## Install the CLI and server together
+
+Run the repository installer on Linux or macOS from the checkout root.
+
+```bash
+python3.11 scripts/install_nabedra.py --prefix .nabedra
+.nabedra/bin/nabedra --version --json
+source .nabedra/bin/activate
+```
+
+The installer builds a locked release binary, checks its engine, and installs it with the matching Python CLI. It honors `CARGO_TARGET_DIR` and requires a fresh installation prefix. Use `--engine oltp` with a separate prefix for OLTP, and `--with-s3` to select `oltp-backup-s3` for that installation. The default is OLAP with S3. At runtime the Python launcher uses `NABEDRA_SERVER_BINARY`, the environment-local executable, or the executable on `PATH`, in that order. An invalid explicit override fails immediately.
+
+To build containers, use `docker build --build-arg NABEDRA_ENGINE=olap -t nabedra:olap .` or `docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp .`. The default entrypoint is the Python CLI for OLAP and the native CLI for OLTP. `NABEDRA_S3=auto` chooses the default S3 support for each engine. Use `true` or `false` as explicit build arguments to override it.
+
+[Installer source](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/scripts/install_nabedra.py) · [Dockerfile](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/Dockerfile)

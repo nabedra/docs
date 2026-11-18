@@ -1,0 +1,93 @@
+---
+title: "Server configuration"
+description: "Configure a standalone OLAP server, S3, resource ceilings, and native TLS."
+---
+
+These settings configure the standalone OLAP server with S3. A [supervised OLAP cluster](/server/clusters) reads its own API configuration and worker bootstrap files. See the [OLTP guide](/server/oltp) for local RocksDB configuration.
+
+## Environment variables
+
+| Environment variable | Requirement and meaning |
+| --- | --- |
+| `NABEDRA_S3_BUCKET` | Required, nonempty existing S3 general purpose bucket. The server does not create buckets. |
+| `NABEDRA_TOKEN` | Required, nonempty shared bearer token for operations. Use a header-safe token shared with clients. |
+| `NABEDRA_S3_PREFIX` | Optional database namespace, default `nabedra-v0/`. An explicit empty prefix is invalid. Trailing slashes normalize to one; absolute paths, traversal, empty internal components and unsafe escaped paths are rejected. |
+| `AWS_REGION` | Bucket region, required unless resolved by the standard AWS region chain. |
+| `AWS_PROFILE` | Optional named shared AWS profile. Profiles and role-based credentials are valid server configurations. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Optional environment credentials for the standard AWS credential chain; unnecessary when another provider supplies credentials. |
+| `AWS_SESSION_TOKEN` | Required with temporary environment credentials; otherwise optional. |
+| `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | Optional standard AWS shared-file location overrides. |
+
+The S3 backend uses the AWS SDK's standard credential and region chains, including
+shared profiles and roles. AWS credentials stay on the server; clients need only
+the API URL and bearer token. The configured identity needs access to read and
+conditionally write objects beneath the database prefix.
+
+Supply these values through the process environment or your service manager. The server does not load dotenv files.
+
+## Standalone OLAP flags
+
+Run `nabedra-db serve --help` for the flags supported by your build.
+
+| Flag | Default | Constraint |
+| --- | --- | --- |
+| `--host` | `127.0.0.1` | An IPv4 or IPv6 address. Nonloopback binding must be explicit. |
+| `--port` | `8000` | Unsigned 16-bit port. |
+| `--workers` | `4` | Default local compute thread ceiling, in `1..256`; overridden by `resources.max_threads` when a resource file is supplied. |
+| `--partition-size`, alias `--partition_size` | `67108864 B` | Positive integer with a supported unit, at most 67,108,864 bytes. |
+| `--queue-size` | `64` | Legacy additional pending-request default and ingress coordination backlog; zero is valid. An execution file supplies the request queue limit directly. |
+| `--execution-config` | Absent | Readable strict JSON execution limits, including request count, replica/result bytes, retention and partition size. |
+| `--resources-config` | Absent | Readable strict JSON compute and memory ceilings; `max_threads` overrides `--workers`. |
+| `--migrate-catalog` | `false` | Explicitly confirm that previous writers are stopped before upgrading a format 1/2/3 catalog to fenced format 4. |
+| `--cold-start` | `false` | Explicitly fence a previous stopped local run and start an empty request queue while retaining committed data. |
+| `--tls-cert` | Absent | Readable PEM certificate file, supplied with `--tls-key`. |
+| `--tls-key` | Absent | Readable matching PEM private key, supplied with `--tls-cert`. |
+
+Without an execution file, `workers + queue-size` supplies
+`execution.max_pending_requests`; checked configuration arithmetic must fit the
+supported limits. Authentication and bounded ingress admission precede body
+reads. Acceptance then requires queue-count and replica-byte capacity and copies
+on all ready workers. Compute saturation queues accepted work within those caps.
+Ingress or queue saturation can return `429 overloaded` before acceptance;
+already accepted records retain their identity through terminal settlement.
+Coordination and ingress limits are separate from compute grants and the full
+worker-memory request queue.
+
+For example:
+
+```sh
+server/target/debug/nabedra-db serve --workers 4 --partition_size '64 KB'
+```
+
+`--partition-size '64 KB'` is equivalent. Units are mandatory and case-insensitive:
+`B`, `KB`, `MB`, `KiB`, `MiB`. Whitespace is optional, so `64kb`, `'64 Kb'` and
+`64KiB` are accepted. SI units use powers of 1000; IEC units use powers of 1024.
+Only positive integer quantities are valid. Bare numbers, signs, decimal
+notation, zero, overflow and values above 64 MiB are rejected. The default and
+hard maximum are 64 MiB, exactly 67,108,864 bytes; `64MiB` and `67108864B` are accepted.
+
+`--workers N` supplies N persistent local compute threads unless the resource
+file overrides that ceiling. Partition, codec and reducer jobs from concurrent
+requests share those slots. A free slot takes the next eligible job; completions
+release capacity and refill the frontier without waiting for a dispatch window.
+CPU and working-memory reservations apply together, and remote node allocations
+respect `max_workers_per_request`, including reduction. Coordination, storage
+waits, queue replication and settlement use separate bounded progress capacity.
+Changing the compute ceiling on restart preserves partition identities and
+committed table contents; worker count does not determine file count.
+
+Without TLS flags, the listener serves HTTP. To serve native HTTPS on an
+explicit nonloopback address:
+
+```sh
+server/target/release/nabedra-db serve --host 0.0.0.0 --port 8443 \
+  --workers 4 --queue-size 64 \
+  --tls-cert /path/to/server-cert.pem --tls-key /path/to/server-key.pem
+```
+
+Clients must trust the certificate's CA and verify its hostname. For a private
+CA, use curl's `--cacert /path/to/ca.pem` or the ORM's `ca_file` argument, as
+shown in the ORM guide. Invalid configuration, inaccessible or invalid catalog
+data, and invalid TLS material fail startup before HTTP ingress begins. A definitely
+missing catalog is initialized with a conditional create; an unreadable or
+unsupported catalog is never replaced with an empty database.

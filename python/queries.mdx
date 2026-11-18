@@ -1,0 +1,54 @@
+---
+title: "Queries and expressions"
+description: "Compose immutable filters, projections, sorts, and limits. Collect, count, or explain the query."
+---
+
+Build scalar comparisons with `col(name)` and `==`, `!=`, `>`, `>=`, `<` or
+`<=`. Boolean columns support only `==` and `!=`. Comparisons must use a scalar
+of the column's exact type; column-to-column comparisons and callbacks are
+unsupported. Combine complete comparisons with `&`, `|` and `~`, and put
+parentheses around each comparison. Python `and`, `or`, `not` and chained
+comparisons raise `TypeError` when they attempt to convert an expression to a
+boolean. Predicate nesting is limited to 32 levels, including levels introduced
+by repeated `where` calls.
+
+## Compose a query
+
+Queries and expressions are immutable. Builders make no network requests and
+return new queries, so a base query can be reused:
+
+```python
+base = users.where(active=True)
+adults = base.where(col("age") >= 18)
+youngest = adults.order_by("age").limit(5)
+oldest = adults.order_by("age", desc=True).limit(5)
+```
+
+Repeated `where(expr=None, **filters)` calls combine the existing predicate,
+the expression and keyword equalities with AND. `where()` with no arguments
+returns an equivalent query. Repeated `select`, `order_by` and `limit` calls
+replace their respective settings.
+
+| Query method | Result and behavior |
+| --- | --- |
+| `select(*columns)` | New query projecting nonempty, unique, existing columns. The key need not be selected. |
+| `where(expr=None, **filters)` | New query with additional AND conditions. |
+| `order_by(column, desc=False)` | New query ordering by one column; `desc` must be an exact `bool`. |
+| `limit(n)` | New query with a nonnegative exact `int` limit; `bool` is invalid. |
+| `collect()` | `list[Row]` containing exactly the selected columns, or all columns by default; `[]` for no matches. |
+| `count()` | Integer count of matching rows after the explicit limit. |
+| `explain()` | Textual plan using metadata only; no data scan or timing measurements. |
+
+## Results, ordering, and limits
+
+Each terminal call sends a fresh request. `collect` and `count` observe a fresh
+committed snapshot each time; a query does not pin data across calls. The server
+filters, orders, limits, then projects. Default ordering is primary-key ascending.
+Explicit ordering always uses primary-key ascending to break ties, even for
+descending order. `limit(0).collect()` returns `[]` and `limit(0).count()` returns
+`0`. Projection does not change the count.
+
+`collect()` may return at most 10,000 rows within an 8 MiB response. There is no
+implicit limit or automatic truncation. The server returns `LimitExceededError`
+for an oversized result; use an explicit smaller limit or projection. `count()`
+returns a scalar and can count more than 10,000 matches. Use [OLAP batch streaming](/python/streaming) for a pinned scan across multiple responses. `collect()` returns one bounded response.

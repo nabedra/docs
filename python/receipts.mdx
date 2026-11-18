@@ -1,0 +1,50 @@
+---
+title: "Request receipts"
+description: "Submit without waiting for completion, observe terminal results, and recover receipts by run and request ID."
+---
+
+Existing table/query methods remain synchronous. They submit through the same
+worker queue as the receipt interface. Acceptance returns a queue identity and
+does not mean a mutation has committed.
+
+```python
+from nabedra import Database
+
+client = Database(url="http://127.0.0.1:8000", mode="olap")
+table = client.table("guide_users")  # Use an existing table name.
+receipt = client.submit("query.count", {
+    "table_id": table.id,
+    "query": {"select": None, "filter": None, "order_by": None, "limit": None},
+})
+identity = (receipt.run_id, receipt.request_id)
+print(*identity, receipt.state)
+terminal = receipt.wait(timeout=30)
+assert terminal.state == "succeeded", terminal.error
+print(terminal.result)
+
+# Reconnect through another API using the same database credentials.
+receipt = client.receipt(*identity)
+```
+
+## Receipt fields and states
+
+`RequestReceipt` has `request_id`, `run_id`, `state`, `result`, `error`, and the
+`terminal` property. `poll()` returns a fresh receipt. `wait()` polls until a
+terminal state or its deadline. A wait timeout releases the client transport and
+does not cancel accepted work. To retry an uncertain submission, preserve the
+original UUID and operation payload and pass `request_id=` to `submit()`.
+
+Receipt states are `queued`, `running`, `committing`, `reconciling`, `succeeded`,
+`failed`, and `abandoned`. Query results expire at the configured retention
+interval and then return explicit `NotFoundError`. Durable mutation decisions
+remain reconcilable after result expiration or a run change.
+
+## Recovery and retention
+
+Every ready worker holds complete request records in RAM. An API restart or an
+individual worker failure can recover accepted work from another holder. A
+joining worker copies the queue before readiness. Stopping every worker abandons
+outstanding requests. An explicit `--cold-start` fences prior attempts and starts
+a new run without reconstructing pending requests from storage. Committed rows
+and mutation decisions remain durable. A one-worker deployment has one queue
+copy and cannot survive losing that process.

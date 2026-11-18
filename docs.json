@@ -1,0 +1,78 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Nabedra",
+  "colors": {
+    "primary": "#155E75",
+    "light": "#67E8F9",
+    "dark": "#164E63"
+  },
+  "description": "Documentation for Nabedra Database, its Python ORM, and Nabedra Events.",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["index", "guides/quickstart", "guides/installation", "guides/task-tracker"]
+          },
+          {
+            "group": "Database engines",
+            "pages": ["server/olap", "server/oltp", "architecture/database", "architecture/oltp-transactions"]
+          },
+          {
+            "group": "Operate Nabedra",
+            "pages": ["server/configuration", "server/worker-runtime", "server/clusters", "server/gateway", "server/providers", "operations/oltp-deployment", "operations/backup-and-migration", "operations/troubleshooting"]
+          }
+        ]
+      },
+      {
+        "tab": "Python ORM",
+        "groups": [
+          {
+            "group": "Use the ORM",
+            "pages": ["python/connect", "python/tables", "python/queries", "python/streaming"]
+          },
+          {
+            "group": "Request lifecycle",
+            "pages": ["python/receipts", "python/errors"]
+          }
+        ]
+      },
+      {
+        "tab": "Events",
+        "groups": [
+          {
+            "group": "Nabedra Events",
+            "pages": ["events/broker", "events/python-client", "events/olap-sink", "events/aws"]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "HTTP and command line",
+            "pages": ["reference/database-http", "reference/streaming-http", "reference/events-http", "reference/cli", "reference/limits"]
+          },
+          {
+            "group": "Contribute",
+            "pages": ["contributing/development", "contributing/verification", "contributing/scheduler-contract", "contributing/oltp-contract", "contributing/oltp-acceptance", "contributing/benchmarks"]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/zPy52/nabedra-database"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/zPy52/nabedra-database"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+.DS_Store
+.mintlify/
+node_modules/
+.env
+.env.*

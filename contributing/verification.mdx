@@ -1,0 +1,25 @@
+---
+title: "Verify Nabedra locally"
+description: "Choose the test runner that matches the server, client, broker, or deployment behavior you are checking."
+---
+
+Run the commands from the database source checkout. See [development](/contributing/development) for toolchains, dependency setup, and local check conventions.
+
+## Focused checks and live acceptance
+
+| Area | Entry point |
+| --- | --- |
+| Shared database protocol and ORM | `python3.11 -m unittest discover -s orm/python/tests -v` with the checkout package installed |
+| OLAP HTTP and storage tests | `cargo test --locked --manifest-path server/Cargo.toml --test api --test health --test executor` |
+| Engine selection and dependency graph | `python3.11 scripts/check_engine_features.py` |
+| OLTP acceptance | `python3.11 scripts/acceptance_oltp.py --list`, then select a [scenario or category](/contributing/oltp-acceptance) |
+| Real OLAP API and worker TCP processes | `scripts/acceptance_nodes.py`, `scripts/acceptance_scheduler.py`, and `scripts/acceptance_providers.py` |
+| OLAP batch streams and training | `scripts/acceptance_olap_streaming.py` and `scripts/acceptance_olap_stream_pytorch.py` |
+| Events | [Broker Docker acceptance](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/tests/README.md) and the Python Events tests |
+| Live S3 | `scripts/acceptance_http.py`, `acceptance_lifecycle.py`, `acceptance_concurrency.py`, `acceptance_latency.py`, and `acceptance_partitions.py` |
+
+The guarded live-S3 runners require the project's explicitly configured test target, private credentials, and a compatible binary. They allocate isolated prefixes and retain sanitized reports. Follow [the upstream runner setup](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/docs/reference.md#focused-checks-and-live-acceptance) for their specific requirements.
+
+A passing component test confirms its executed assertions. Match the result to the recorded engine, build revision, topology, and storage backend before applying it to your deployment. Local process fixtures exercise real TCP and server processes on one host. Cloud lifecycle and performance require their own integration evidence.
+
+[Scheduler evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md) · [OLTP evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) · [OLAP streaming evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/evidence/olap-streaming/README.md)

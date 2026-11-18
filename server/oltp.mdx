@@ -1,0 +1,56 @@
+---
+title: "Run local OLTP"
+description: "Run a single-replica RocksDB server, retain its data on restart, and understand OLTP query behavior."
+---
+
+The experimental OLTP build persists indexed rows and transaction decisions in RocksDB. Start with standalone replication factor one (RF1). This setup keeps data on one volume, so drive or host loss requires recovery from a backup.
+
+## Start a native server
+
+Build the OLTP binary from the [source checkout](/guides/installation). Run from the repository root.
+
+```bash
+cargo build --locked --manifest-path server/Cargo.toml \
+  --no-default-features --features oltp --bin nabedra-db
+server/target/debug/nabedra-db --version
+mkdir -p ./nabedra-local-data
+export NABEDRA_TOKEN='<your-private-bearer-token>'
+server/target/debug/nabedra-db serve --data-dir ./nabedra-local-data \
+  --database local --host 127.0.0.1 --port 8000
+```
+
+Use a directory on the intended mounted volume. The server checks that the directory exists. Check the mount separately before starting the process. The data directory belongs to one database selector and one active owner. The selector defaults to `default`.
+
+In a second terminal, supply the same token. Check `/health/ready`, then connect with `Database("http://127.0.0.1:8000", database="local", mode="oltp")`. The [quickstart](/guides/quickstart) includes a Docker alternative and a table example.
+
+## Restart and recover
+
+Stop the old process and confirm it exited. Start the same binary against the same directory and selector with `--cold-start`. The server fences the previous run. Committed rows and durable request decisions survive. The new run starts with an empty queue, so outstanding work without a durable decision is abandoned.
+
+```bash
+server/target/debug/nabedra-db serve --data-dir ./nabedra-local-data \
+  --database local --host 127.0.0.1 --port 8000 --cold-start
+```
+
+Use the [original receipt identity](/python/receipts) for an uncertain write. Save periodic [offline backups](/operations/backup-and-migration) to storage outside the active data directory.
+
+## Standalone flags
+
+| Flag | Meaning |
+| --- | --- |
+| `--data-dir` | Existing directory required for the RocksDB store. |
+| `--database` | Database selector accepted by the endpoint. Defaults to `default`. |
+| `--host`, `--port` | Bind address and port. Default to `127.0.0.1:8000`. |
+| `--workers` | Query compute ceiling. Defaults to 4 and accepts 1 through 256. |
+| `--queue-size` | Additional queue slots when no execution file is supplied. Defaults to 64. |
+| `--execution-config`, `--resources-config` | Strict JSON [execution and worker bounds](/server/worker-runtime#configuration-files). |
+| `--tls-cert`, `--tls-key` | Matching PEM certificate and private key. Supply both for HTTPS. |
+| `--cold-start` | Authorize a fresh queue run after the previous worker has stopped. |
+
+## Reads and writes
+
+OLTP uses primary-key lookups, bounded range scans, and multiversion concurrency control (MVCC) for snapshots. Mutations validate and prepare their complete changes before recording a decision and resolving prepared data. Each ORM call retains the shared HTTP contract. The public table API provides atomic batches but exposes no multi-call transaction handle.
+
+OLTP removes OLAP's 100,000-row and 64 MiB logical table ceilings. The API still bounds request bytes, insert batch size, and collected results. Use `count()` or a selective bounded query for large tables. The checkout's [streaming API](/python/streaming) requires the OLAP engine.
+
+The deployment implementation includes typed Raft groups, administrative secondary indexes and shard lifecycle work. See [OLTP deployment](/operations/oltp-deployment) for the configuration entry points and evidence for distributed use, and [OLTP serialization](/architecture/oltp-transactions) for the correctness conditions.

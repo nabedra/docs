@@ -1,0 +1,104 @@
+---
+title: "Quickstart"
+description: "Start an OLAP or OLTP database, then create and query a table with Python."
+---
+
+You need Python 3.11 or newer and a checkout of the [Nabedra Database repository](https://github.com/zPy52/nabedra-database). For Docker, run commands from the checkout root. See [installation](/guides/installation) for native builds.
+
+<Steps>
+<Step title="Set a bearer token and install the client">
+
+Create a virtual environment and install the client from the checkout. Choose a private, nonempty bearer token and supply it to each terminal you use.
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -e ./orm/python
+export NABEDRA_TOKEN='<your-private-bearer-token>'
+```
+
+</Step>
+<Step title="Start the database">
+
+<Tabs>
+<Tab title="OLTP with Docker">
+
+Build the local OLTP image and give RocksDB a named volume. The port mapping exposes HTTP only on your machine.
+
+```bash
+docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp .
+docker volume create nabedra-quickstart
+docker run --rm --user 0 --entrypoint chown \
+  --mount type=volume,source=nabedra-quickstart,target=/data \
+  nabedra:oltp nabedra:nabedra /data
+docker run --rm --name nabedra-quickstart \
+  -e NABEDRA_TOKEN \
+  --mount type=volume,source=nabedra-quickstart,target=/data \
+  -p 127.0.0.1:8000:8000 nabedra:oltp \
+  serve --data-dir /data --host 0.0.0.0
+```
+
+If you restart against the same volume, wait for the previous container to stop and append `--cold-start`. See [local OLTP](/server/oltp) for restart behavior.
+
+</Tab>
+<Tab title="OLAP with S3">
+
+Use Rust 1.94.1 or newer. Use an existing bucket and a fresh prefix. Your AWS identity needs permission to read and conditionally write objects at that prefix.
+
+```bash
+cargo install nabedra-database --version 0.1.1 --locked
+export AWS_PROFILE='<configured-profile>'
+export AWS_REGION='<bucket-region>'
+export NABEDRA_S3_BUCKET='<existing-bucket>'
+export NABEDRA_S3_PREFIX='nabedra-quickstart/'
+nabedra-db serve --host 127.0.0.1 --port 8000
+```
+
+Omit `AWS_PROFILE` if you use environment credentials or a workload role. See [server configuration](/server/configuration) for AWS and TLS details.
+
+</Tab>
+</Tabs>
+
+</Step>
+<Step title="Check readiness">
+
+In a second terminal, change to the checkout root and set the same `NABEDRA_TOKEN`. Wait for the server's readiness probe to return HTTP 200.
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+```
+
+</Step>
+<Step title="Create, insert, and query">
+
+Start `.venv/bin/python` and run the example. The default local OLTP database selector is `default`. For the S3 server, change `mode` to `"olap"` and omit `database`.
+
+```python
+from uuid import uuid4
+
+from nabedra import Database, col
+
+db = Database("http://127.0.0.1:8000", mode="oltp", database="default")
+tasks = db.create_table(
+    f"tasks_{uuid4().hex}",
+    {"id": str, "title": str, "priority": int},
+    key="id",
+)
+tasks.insert_many([
+    {"id": "t1", "title": "Write docs", "priority": 4},
+    {"id": "t2", "title": "Review examples", "priority": 2},
+])
+high_priority = tasks.where(col("priority") >= 3).select("id", "title")
+assert high_priority.collect() == [{"id": "t1", "title": "Write docs"}]
+print(tasks.name)
+```
+
+The random suffix gives each run a fresh table. Save the printed name to reopen it with `db.table(name)` after restart. Call `tasks.drop()` when you want to remove the table.
+
+</Step>
+</Steps>
+
+Stop the foreground server with Ctrl-C and let it drain. To confirm persistence, restart using the same S3 prefix or Docker volume and the engine's `--cold-start` flag, then look up the recorded table name.
+
+<Card title="Build a task tracker" icon="list-check" href="/guides/task-tracker">
+  Run through updates, replacements, errors, and restart on OLAP.
+</Card>

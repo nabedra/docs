@@ -1,0 +1,121 @@
+---
+title: "Stream OLAP query batches"
+description: "Stream rows or Arrow batches from a pinned snapshot and assign data shards to PyTorch ranks."
+---
+
+<Info>Install the Python client from the source checkout for these streaming APIs. Use `[arrow]` for Arrow batches. See [installation](/guides/installation).</Info>
+
+## Stream rows
+
+`Query.stream()` fetches batches in ascending primary-key order from a pinned OLAP snapshot. Each batch contains up to `batch_rows` matching rows. By default, the worker uses available RAM and compute to prepare the next batch while your application processes the current one.
+
+```python
+from nabedra import Database, col
+
+db = Database("https://nabedra.example", database="ml", mode="olap")
+query = (
+    db.table("training_examples")
+    .query()
+    .where((col("split") == "train") & (col("weight") > 0.0))
+    .select("x1", "x2", "label")
+)
+
+with query.stream(batch_rows=64) as batches:
+    for rows in batches:
+        consume(rows)
+```
+
+Use the context manager so an early exit closes the server lease. The iterator is single-use. The SDK retries lost responses and temporary worker failures with the same run ID and batch sequence. The connection timeout and a fixed attempt limit bound the retry window. It raises `StreamAbandonedError` when the worker run ends, `StreamExpiredError` when the lease expires, and `StreamUnsupportedError` when the server or the query lacks streaming support.
+
+`prefetch_batches=1` is the default. Depth zero reads each batch on demand. Depth two requests another batch of lookahead and uses more worker RAM when available. The last batch can be short. Use `drop_last=True` to yield only full batches. For a batch that exceeds the server's byte cap, choose a smaller `batch_rows` or project fewer columns. You can stream projections, filters and a scan-wide limit in primary-key order. Other sorts require a prepared table.
+
+## PyTorch
+
+From the database checkout root, install the Arrow extra and your training dependencies in the active Python environment.
+
+```sh
+python -m pip install -e './orm/python[arrow]'
+python -m pip install numpy torch
+```
+
+This adapter yields one pair of CPU tensors per server batch. The two feature columns are numeric and the label column is an `int64` class index.
+
+```python
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, IterableDataset
+
+
+class NabedraBatches(IterableDataset):
+    def __init__(self, batches):
+        self.batches = batches
+
+    def __iter__(self):
+        for batch in self.batches:
+            features = np.column_stack([
+                batch.column("x1").to_numpy(),
+                batch.column("x2").to_numpy(),
+            ]).astype(np.float32, copy=False)
+            labels = batch.column("label").to_numpy(
+                zero_copy_only=False, writable=True,
+            )
+            yield torch.from_numpy(features), torch.from_numpy(labels)
+
+
+def train_batches(batches, device):
+    pin = device.type == "cuda"
+    loader = DataLoader(
+        NabedraBatches(batches),
+        batch_size=None,
+        num_workers=0,
+        pin_memory=pin,
+    )
+    for features, labels in loader:
+        train_step(
+            features.to(device, non_blocking=pin),
+            labels.to(device, non_blocking=pin),
+        )
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+for epoch in range(num_epochs):
+    with query.stream(batch_rows=64, format="arrow", drop_last=True) as batches:
+        train_batches(batches, device)
+```
+
+`batch_size=None` passes each server batch through without wrapping it in another batch. `num_workers=0` keeps the stream in its training process. On CUDA, `pin_memory=True` pins the current CPU tensors for the host-to-device copy. Worker lookahead can overlap scan work with training. Network transfer, conversion and device copies still take time.
+
+## One shard per distributed rank
+
+Rank zero opens a shared snapshot for the epoch. Every rank uses the same query and opens the shard at its rank index. Enter the context after initializing your process group and configuring each rank's device.
+
+```python
+from contextlib import ExitStack
+import torch.distributed as dist
+
+rank = dist.get_rank()
+world_size = dist.get_world_size()
+
+for epoch in range(num_epochs):
+    with ExitStack() as leases:
+        snapshot_ids = [None]
+        if rank == 0:
+            snapshot = leases.enter_context(query.stream_snapshot(shards=world_size))
+            snapshot_ids[0] = snapshot.id
+        dist.broadcast_object_list(snapshot_ids, src=0)
+
+        with query.stream(
+            batch_rows=64,
+            format="arrow",
+            drop_last=True,
+            snapshot=snapshot_ids[0],
+            shard=rank,
+        ) as batches:
+            train_batches(batches, device)
+
+        dist.barrier()
+```
+
+The barrier keeps the shared snapshot open until every rank has closed its stream. Shards cover disjoint physical row ranges. Filters can leave ranks with different numbers of batches, even with `drop_last=True`. Run this loop with equal step counts across ranks or an explicit uneven-input policy supported by your model's collectives. Omit `Query.limit()` for a multi-shard scan. For reproducible shuffle, prepare a shuffled dataset version upstream.
+
+Streaming avoids the single-response row cap of `collect()`. OLAP still limits each table to 100,000 rows and 64 MiB of decoded payload, and its catalog to 1 MiB.

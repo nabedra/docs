@@ -1,0 +1,20 @@
+---
+title: "Troubleshooting"
+description: "Diagnose startup, authentication, admission, and recovery failures."
+---
+
+| Symptom | Check |
+| --- | --- |
+| A command or stream route is unavailable | Check `nabedra-db --version` and `nabedra-db serve --help`. Build the correct engine and install the matching Python checkout for [streaming](/python/streaming) or Events. |
+| API responds to liveness but fails readiness | Inspect server logs and verify the configured catalog, mounted store or worker readiness. For S3, check the region, bucket, prefix, and read credentials. Readiness alone does not verify writes. |
+| `401 unauthorized` | Check the endpoint URL, bearer token and database selector. Data, cluster admin, gateway and Events tokens belong to different interfaces. |
+| TLS verification fails | Confirm that the hostname matches the certificate and supply the private CA with `ca_file` or `curl --cacert` when needed. |
+| `404 not_found` for an existing table name | Fetch the table again by name. A dropped and recreated table has a new ID, so old handles remain stale. |
+| `409 conflict` after retry | Preserve the original UUID and exact request body. A different body cannot reuse the same identity. Also check duplicate names or primary keys. |
+| `413 limit_exceeded` | Reduce the insert batch, select fewer columns, or use a smaller query limit. For an OLAP stream, reduce `batch_rows`. |
+| `429 overloaded` before acceptance | Inspect [queue capacity and resource limits](/server/worker-runtime). Reduce concurrent submissions and check eligible ready workers before retrying with the original identity. |
+| A write times out or returns `outcome_unknown` | Keep the original request ID and known run ID. Observe its [receipt](/python/receipts) or reconcile its durable decision before creating another logical write. |
+| A receipt or stream disappeared on restart | Check whether the worker run changed and whether the retention window elapsed. A full shutdown abandons outstanding RAM work. Only committed mutation decisions are durable. |
+| An Events lease or checkpoint expired | Reclaim a lost lease. For `checkpoint_expired`, inspect the retention floor and follow the [operator recovery procedure](/events/broker#issue-grants-and-create-topics). |
+
+For an OLAP cluster, `nabedra database doctor --config PATH --json` checks local configuration, protected auth paths and storage access using a read probe. Use `nabedra database cluster status` with an admin token file to inspect enrollment and worker capacity.

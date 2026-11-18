@@ -1,0 +1,107 @@
+---
+title: "Worker queues and scheduling"
+description: "Follow admission, in-memory replication, compute and memory limits, and cold recovery."
+---
+
+## Admission and recovery
+
+`POST /v1/operations` waits for the terminal response. `POST /v1/requests` accepts
+the same `{request_id, operation, payload}` envelope and returns HTTP 202 with
+`request_id`, `run_id`, and `state: "queued"`. `GET /v1/requests/{run_id}/{request_id}`
+returns its state, result, and protocol error. Both interfaces use the data bearer
+token. A 202 response confirms replication to all ready workers, never successful
+mutation publication.
+
+Requests and read snapshots live in replicated worker RAM. Individual failures
+retain accepted work while another complete copy survives. Joining workers copy
+outstanding requests before readiness; drains transfer copies before removal.
+After a fixed/manual cluster's last queue holder stops, use `--cold-start` on
+the API or local `serve` to fence old authority and create a fresh run. Old unfinished receipts become abandoned;
+durable mutation decisions and committed rows remain available. Heartbeat expiry
+can fence a failed incarnation but never authorizes an automatic cold start.
+A configured provider can establish a new empty run only after fresh inventory
+proves that every retained member stopped, as described in
+[provider configuration](/server/providers).
+
+## Fences and catalogs
+
+A brand new OLAP namespace creates a fenced format 4 catalog. An existing format
+1/2/3 catalog requires `--migrate-catalog`, which confirms that previous writers
+have been stopped. Keep old writers stopped after the transition. Migration and
+cold start are separate operations.
+
+## Runtime bounds
+
+For local OLAP `serve`, `--execution-config PATH` and `--resources-config PATH` read
+strict JSON configuration objects matching
+[the scheduling design](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md). Legacy
+`--workers`, `--queue-size`, and `--partition-size` supply defaults when those
+files are absent. Distributed worker templates carry `execution` and each
+worker's `resources`; signed enrollment preserves heterogeneous CPU/RAM ceilings.
+Each worker reports its actual limits, derived coordination capacity, and bounded
+control thread/transport overhead in its startup announcement. The binary uses
+two Tokio network threads and at most four Tokio blocking threads; each worker
+has two separate control codec threads. Partition, Arrow/codec, and reducer work
+share the advertised compute thread limit. Legacy
+`operation_slots` no longer serializes queued requests as compute permits. Signed
+`operation_slots` reports request coordination capacity; signed `partition_slots`
+reports bounded job coordination/prefetch capacity. `resources.max_threads` is the
+compute ceiling. A worker reserves at least two job actors per compute thread
+plus progress capacity, independently of its legacy partition-slot hint.
+
+Each request exposes a frontier of twice the compute capacity of its allowed
+workers. The coordinator validates enough outgoing stream capacity for three
+such frontiers plus progress slots before accepting a worker enrollment or
+scaling policy. An unsupported topology reports the minimum required
+`control_memory_reserve_bytes`; it does not silently restrict the advertised CPU
+capacity. Worker listeners reserve separate connection classes for job data,
+16 submissions, 8 receipts, 8 ordinary replicas, 4 bootstrap transfers,
+8 control requests, and 24 unclassified header handshakes. Signed queue metadata
+binds the command to its connection class, which the decoded body must match.
+Bootstrap copies and small control replies have reserved memory independent of
+request staging and ordinary replica traffic. Startup announcements report these
+network bounds and the derived outgoing stream limit.
+
+## Memory ownership
+
+Queue and result caps are charged for the lifetime of the worker. Active request
+bodies, pinned snapshots, partition stages, outputs, and reductions retain
+separate memory charges through settlement. Shared compute grants enforce
+`max_threads`; coordinator waits, queue copies, storage I/O, and commit waits do
+not hold those grants. Memory accounting contains ordinary allocation failures;
+it does not provide process isolation from native aborts or an OS OOM kill.
+
+Use [the scheduler test contract](/contributing/scheduler-contract) to assess
+individual acceptance cases. `scripts/acceptance_scheduler.py` exercises real TCP
+queue/recovery gates with a local conditional store. Those assertions do not
+establish AWS or Kubernetes behavior.
+
+## Configuration files
+
+Supply complete JSON objects. These examples use the type defaults. A standalone launch without an execution file derives its pending-request limit from the thread ceiling plus `--queue-size`.
+
+```json execution.json
+{
+  "max_workers_per_request": 4,
+  "max_pending_requests": 1024,
+  "max_queue_bytes_per_replica": 268435456,
+  "max_retained_result_bytes_per_worker": 67108864,
+  "result_retention_ms": 300000,
+  "queue_replication": "all_ready_workers",
+  "queue_lifetime": "live_cluster",
+  "partition_size": "64 MiB"
+}
+```
+
+```json worker-resources.json
+{
+  "max_threads": 4,
+  "memory_limit_bytes": 8589934592,
+  "task_memory_limit_bytes": 536870912,
+  "control_memory_reserve_bytes": 268435456
+}
+```
+
+Leave enough worker memory for queue bytes, retained results, the control reserve, and task working memory. The server validates the combined configuration at startup. Tune `partition_size` for OLAP file rewrites. A memory accounting limit sets worker admission and reservation bounds. Use deployment metrics for actual process and host memory.
+
+[Configuration types and defaults](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/config.rs)

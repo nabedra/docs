@@ -1,0 +1,44 @@
+---
+title: "OLAP streaming HTTP API"
+description: "Discover streaming limits, open a lease, read exact batch sequences, and close stream resources."
+---
+
+Use a streaming-capable OLAP server and its data bearer credential. A mixed-version worker set can reject streams while ordinary operations continue. The [Python iterator](/python/streaming) wraps this protocol and handles bounded retries and lease cleanup.
+
+| Method and path | Request and response |
+| --- | --- |
+| `GET /v1/streams/capabilities` | Returns protocol `version`, active `run_id`, and batch row, byte, and prefetch limits. |
+| `POST /v1/streams` | Takes an open request and returns HTTP 201 with `run_id`, `stream_id`, effective `prefetch_batches`, and `expires_at`. |
+| `POST /v1/streams/{run_id}/{stream_id}/batches/{sequence}` | Empty request body. Returns HTTP 200 and a batch, or 204 at end of stream. |
+| `DELETE /v1/streams/{run_id}/{stream_id}` | Close a batch stream lease. |
+| `POST /v1/stream-snapshots` | Create a shared snapshot and return HTTP 201 with `snapshot_id`, `run_id`, and `expires_at`. |
+| `DELETE /v1/stream-snapshots/{run_id}/{snapshot_id}` | Close the shared snapshot lease. |
+
+## Open a stream
+
+Set `expected_run_id` from capabilities. Use a new request UUID for a new logical stream. Use the same body and identity when reobserving an unanswered open.
+
+```json
+{
+  "request_id": "538c630a-7f8b-463b-910c-625089d88a64",
+  "expected_run_id": "53a5251e-4c7f-43a9-b6c8-f007a3dd084c",
+  "table_id": "ee139703-c9db-407a-9e85-f2cf023bb75d",
+  "query": {"select": ["id"], "filter": null, "order_by": null, "limit": null},
+  "batch_rows": 64,
+  "prefetch_batches": 1,
+  "format": "rows",
+  "drop_last": false,
+  "snapshot_id": null,
+  "shard": 0
+}
+```
+
+`format` is `rows` for JSON or `arrow` for Arrow IPC. Start batch sequences at zero and advance after accepting each response. For a lost response, request the same sequence while the lease and retained batch are available. A stream returns rows in primary-key order. Use a projection or smaller `batch_rows` if a batch would exceed 2 MiB.
+
+## Share a snapshot
+
+Send `request_id`, `expected_run_id`, `table_id`, `query`, and `shards` when opening a shared snapshot. `shards` accepts up to 64. Set `snapshot_id` and the zero-based `shard` in each stream request and reuse the same query. Multi-shard scans require a null query limit. Keep the snapshot alive until each shard stream closes.
+
+HTTP 410 reports an expired lease or an abandoned run. Open a new stream to restart a scan. A new run or snapshot can observe different committed data.
+
+[Stream routes and response encoding](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/api/stream.rs) · [Stream wire types](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/node/stream/wire.rs)

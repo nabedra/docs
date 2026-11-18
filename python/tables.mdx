@@ -1,0 +1,57 @@
+---
+title: "Tables and rows"
+description: "Define a schema and primary key, then insert, read, update, replace, or delete rows."
+---
+
+Table and column names must match `[A-Za-z_][A-Za-z0-9_]{0,63}`. A schema has
+1 to 128 columns and accepts exactly these Python types:
+
+| Python type | Stored type | Accepted values |
+| --- | --- | --- |
+| `str` | UTF-8 string | Exact `str` values |
+| `int` | Signed int64 | Integers from `-(2**63)` through `2**63 - 1` |
+| `float` | Float64 | Finite floats; no NaN or infinity |
+| `bool` | Boolean | Exact `True` or `False` |
+
+Values must have the exact declared type. A boolean is not an integer here,
+an integer does not fill a float column, and subclasses are not accepted.
+Columns are nonnullable. Full rows must contain every schema column, with no
+unknown columns or `None` values. The primary key must name a `str` or `int`
+column and must be unique. Both server engines accept the wire value `format="parquet"`. The OLTP engine persists rows in RocksDB.
+
+## Table handles and methods
+
+Obtain `Table` handles through `Database`, rather than constructing them directly.
+Each handle has immutable `id`, `name`, `key` and `format` metadata and retains
+its original schema. Input mappings are copied, and each access to
+`table.schema` returns a fresh dictionary. Changing that dictionary does not
+change the handle or server schema. Row and query operations use the table ID.
+
+| Method | Result and behavior |
+| --- | --- |
+| `db.create_table(name, schema, key, *, format="parquet")` | New `Table`; an existing name raises `ConflictError`. |
+| `db.table(name)` | One discovered `Table`; a missing name raises `NotFoundError`. |
+| `db.tables()` | `list[Table]` sorted by name; `[]` if none exist. |
+| `table.insert(row)` | `None`; an existing key raises `ConflictError`. |
+| `table.insert_many(rows)` | Inserted `int` count from one atomic request. |
+| `table.get(key)` | Complete row dictionary, or `None` for a missing row. |
+| `table.update(key, values)` | `bool` indicating whether the row exists; accepts partial values, including `{}`, but forbids the key field even if unchanged. |
+| `table.upsert(row)` | `None`; inserts a new row or replaces the entire existing row. |
+| `table.delete(key)` | `True` if deleted, `False` for a missing row. |
+| `table.query()` | New unfiltered `Query`, without network I/O. |
+| `table.where(expr=None, **filters)` | New filtered `Query`, without network I/O. |
+| `table.drop()` | `None`; removes the table from the server catalog. |
+
+## Atomic batches
+
+`insert_many` accepts an iterable, including a generator. It consumes and
+validates one bounded batch before sending anything, stopping if it exceeds
+10,000 rows or an 8 MiB encoded request. It never splits a batch or sends a
+validated prefix. The server applies the whole batch atomically; duplicate keys
+within the batch or against existing rows reject the batch. An empty iterable
+still sends one request to validate table existence, then returns `0`.
+
+Missing tables raise `NotFoundError`, including through old handles after a
+drop. Recreating the same name gives a new ID; existing handles and their queries
+remain stale. Obtain a new handle with `db.table(name)`. Dropping a table does
+not delete retained S3 snapshots.

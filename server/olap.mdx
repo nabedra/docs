@@ -1,0 +1,95 @@
+---
+title: "OLAP storage and queries"
+description: "Understand Parquet partitioning, S3 catalog publication, query execution, and format upgrades."
+---
+
+## Storage behavior and limits
+
+Within the prefix, `catalog.json` is the conditional publication root. Current
+runtime publications use format 4, which stores the durable decision head and
+`run_id`/scheduler-term fence alongside table references. An ownership takeover
+or cold start updates that same root, so an old attempt's catalog ETag cannot
+publish after its fence has been superseded.
+
+The table layouts introduced in format 2 remain supported inside format 4:
+Legacy entries at `tables/<table_id>/<commit_id>.parquet` and Partitioned entries
+at `tables/<table_id>/<commit_id>/<ordinal>.parquet`.
+A manifest records each file's typed primary-key range, row count, closed byte
+size and decoded payload size. Ranges are ordered, contiguous, lower-inclusive
+and upper-exclusive, with unbounded outer ends. Empty tables use `files: []`
+and create no Parquet object.
+
+Existing format 1/2/3 roots require `--migrate-catalog` after their previous
+writers have stopped. Migration preserves table/file references and existing
+decision history, then establishes a format 4 fence before accepting work. Keep
+older writers stopped afterward. Upgrading the root does not rewrite table data:
+a Legacy table becomes partitioned on an actual data change, while reads and
+no-op mutations retain its existing file. Mixed table layouts remain valid.
+
+Each read captures one fresh catalog and retains its referenced files during
+writes or drops, without taking the mutation lock. Keyed gets and mutations
+route to the owning partition. Changed mutations rewrite only affected files;
+unchanged files retain their object references. Queries scan partitions on the
+shared workers. The coordinator combines their results with one global ordering,
+ascending-primary-key tie-break, limit and projection; count sums matches and
+applies the global limit. Explain remains metadata-only.
+
+Concurrent mutations prepare private candidates from captured catalogs. Every
+affected partition and aggregate limit must pass before one conditional catalog
+PUT publishes the complete reference set and durable request decision under the
+current fence. A CAS loser recomputes against a fresh catalog within its bounded
+retry policy. Preparation or upload failure exposes no partial table. Uploaded
+objects that the root never references remain invisible orphans.
+
+The size target measures closed Parquet bytes, including metadata and footer.
+New files split by primary-key range toward the configured target. A singleton
+may exceed that soft target but never the 67,108,864-byte hard cap. If no valid
+file can fit, the whole mutation fails. Changing the configured size affects
+new or rewritten ranges and does not automatically repack unchanged files.
+Legacy files retain their existing 80 MiB encoded read allowance.
+
+Table handles retain immutable UUID identities. Dropping and recreating a name
+produces a new ID, so old handles return `not_found` instead of targeting the new
+table. Old snapshots and orphan uploads remain in S3. Dropping removes only the
+catalog entry and deletes no objects. Recovery follows the catalog, never a
+listing or the newest-looking file.
+
+Accepted requests deduplicate by their exact identity and body. An identical
+same-run submission attaches to its existing execution or receipt; a different
+body conflicts. Mutations also retain durable decisions, so recovery reconciles
+a catalog PUT whose response was lost instead of applying the mutation twice.
+An unresolved publication reports `outcome_unknown` with outcome `unknown`;
+a timeout or an older read does not prove rollback. Recover the same receipt or
+reconcile the durable decision before choosing another logical write. A complete
+worker shutdown abandons outstanding memory work rather than resubmitting it.
+The ORM performs no automatic mutation resubmission.
+
+Schemas contain 1 to 128 columns and exactly four nonnullable scalar types:
+`utf8` strings, signed `int64` integers, finite `float64` values and `bool`.
+Values must match exactly, without coercion or nulls. Primary keys are unique
+`utf8` or `int64` columns and cannot be changed by updates. Full rows must contain
+every declared column and no extra columns. Table and column names match
+`[A-Za-z_][A-Za-z0-9_]{0,63}` and are case-sensitive. Batches are atomic, including
+duplicate-key validation.
+
+| Limit | Maximum |
+| --- | --- |
+| Encoded JSON request or response, including envelope | 8 MiB each |
+| Catalog document | 1 MiB |
+| Insert batch or collected row result | 10,000 rows |
+| Table | 100,000 rows |
+| Decoded logical row payload per table | 64 MiB |
+| Closed bytes per new partition file, including metadata | 64 MiB = 67,108,864 bytes |
+
+Partitioning does not multiply table, request, batch or result limits.
+Limits produce `limit_exceeded`, without truncation. Only server-generated
+Parquet snapshots are supported; this is not a general Parquet file importer.
+OLAP retains old snapshots and orphan objects. The ORM supports `count()` and [pinned batch streaming](/python/streaming). OLAP queries use scans and primary-key routing, with one filter, global ordering, limit and projection. The database API has no SQL interface, joins, grouping, or transactions spanning separate calls.
+
+## Reopen data after an upgrade
+
+The rename keeps catalog and snapshot formats unchanged. Storage identity digests, configuration and template fingerprint domains, persisted worker verifier domains, and the stored `meshdb.callbacks.v1` callback adapter contract retain their original values. Existing committed data does not need a format migration for the rename.
+
+The default namespace for a new legacy `serve` process is now `nabedra-v0/`. To reopen data previously written under the default namespace, set `NABEDRA_S3_PREFIX=meshdb-v0/` explicitly, or keep the existing configured namespace. Renaming a namespace selects a different database; it does not move existing objects.
+
+Environment settings now use `NABEDRA_*`, and HTTP headers use `X-Nabedra-Storage` and the internal `X-Nabedra-*` prefix. `X-Nabedra-Database` selects a database at the Python gateway. Restart the cluster with matching renamed API, worker and client versions, since peer authentication domains and headers changed. The public launcher is `nabedra database <command>`; direct Rust commands use `nabedra-db <command>`.

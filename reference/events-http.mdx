@@ -1,0 +1,31 @@
+---
+title: "Events HTTP API"
+description: "Publish records, discover partitions, consume leases, and submit operator changes to the Events broker."
+---
+
+Send an Events bearer grant to the broker's public URL. Publish grants authorize a topic. Read grants authorize a topic and subscription. Operator grants authorize administration. Grants are distinct from the database data token.
+
+## Public routes
+
+Use JSON for request bodies. In the table, `P` means `/v1/topics/{topic}/partitions/{partition}` and `S` means `P/subscriptions/{name}`.
+
+| Method and path | Request and response |
+| --- | --- |
+| `GET /v1/topics/{topic}/partitions` | Discover partition IDs and the topic UUID. Pass `after` to continue from `next_after`, and use `limit` to bound a page. |
+| `POST P/events` | Send `event_id` and `data`. Returns the event, including its offset. |
+| `POST P/batches` | Send an object with an `events` array of publish records. Returns an `events` array of receipts in order. |
+| `POST S/claim` | Send `claim_id` as a UUID. Returns an opaque `lease` and `expires_at`. |
+| `GET S/events?limit=100` | Returns `after`, contiguous `events`, and an opaque `delivery` token. |
+| `POST S/renew` | Send `{}`. Returns the renewed lease and expiry. |
+| `PUT S/checkpoint` | Send `delivery` and `through` as a decimal offset string. Returns the checkpoint offset. |
+| `POST S/release` | Send `{}` to release a lease. |
+
+Send the lease as `X-Events-Lease: <lease>` with poll, renew, checkpoint, and release. Continue to send the read bearer grant. Lease and delivery values are opaque and scoped to the claim. Keep the partition, event UUID, and payload for an identical retry. Event offsets are decimal strings on the wire. A read page may contain fewer than the requested number of events because of the byte limit.
+
+## Operator routes
+
+`GET /readyz` checks broker readiness. Send an operator grant for `GET /v1/admin/broker`, `GET /v1/admin/groups/{group}`, and topic, partition, or subscription inspection under `/v1/admin/topics/{topic}`.
+
+Use `POST /v1/admin/operations` with an `operation_id` UUID and an `action` object containing its `type` and fields. Observe `GET /v1/admin/operations/{id}` before making a dependent change. See [broker configuration and actions](/events/broker) for creation, placement, retention, and recovery examples.
+
+[Public routes](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/http.rs) · [Operator routes](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/control/operate.rs)

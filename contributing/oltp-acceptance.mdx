@@ -1,0 +1,36 @@
+---
+title: "Run the OLTP acceptance suite"
+description: "Run O01 to O29 using the central runner and interpret its results."
+---
+
+Run the essential OLTP acceptance suite from the repository root:
+
+```sh
+python3.11 scripts/acceptance_oltp.py
+```
+
+The runner builds one cached test batch, copies the test/server executables, and reports O01–O29 as `passed`, `failed` or `not-run` in `artifacts/oltp-acceptance/results.json`. Missing production assertions, ignored tests and unavailable real provider checks cannot pass. Exit zero requires every selected scenario to pass. Exit one indicates failure; exit two indicates incomplete execution or changing source. The module and scenario implementations are still being completed.
+
+| Category | Essential scenarios |
+| --- | --- |
+| Compatibility and packaging | O01–O02 |
+| Keys, query semantics and indexes | O03–O04, O12 |
+| Transactions and durable decisions | O06–O11, O29 |
+| Resource limits, queue survival and cold recovery | O05, O13–O15, O22–O23 |
+| Shards, volumes and unbounded table growth | O16, O21, O26, O28 |
+| Deployment, autoscaling, backup and migration | O17–O20, O27 |
+| Performance and scaling | O24–O25 |
+
+Each scenario retains every assertion in [the OLTP contract](/contributing/oltp-contract). Variations belong inside the scenario. The runner records the [scheduler identifiers and named regressions](/contributing/scheduler-contract) mapped to each scenario. Original OLAP publication/upload assertions remain in that engine's regression checks. Existing component tests remain useful but cannot establish an entire production scenario by themselves.
+
+For focused development use `--scenario O07` or `--category transactions`. `--list` prints the complete rubric without building. Use the same build and test lock for focused runs. Replace `affected_test_filter` with the Cargo test filter you want to run.
+
+```sh
+python3.11 scripts/acceptance_oltp.py --cargo test --locked --manifest-path server/Cargo.toml --no-default-features --features oltp --lib affected_test_filter
+```
+
+The runner reuses `CARGO_TARGET_DIR`, or the main checkout's existing cache. It sets two Cargo jobs, disables incremental/debug data and runs scenarios sequentially. `--target-dir` overrides the cache location. CPU/RAM enforcement for performance/provider assertions must be part of their actual fixture; these Cargo settings are not an operating-system memory limit.
+
+Scenario library tests end in `acceptance_oNN` and use `#[ignore = "run through scripts/acceptance_oltp.py"]`. The runner explicitly executes them. Ordinary feature/regression runs do not recursively launch the acceptance suite or provision infrastructure. They use production services and deterministic barriers, and reuse existing helpers where appropriate. A missing external prerequisite must emit `NABEDRA_OLTP_ACCEPTANCE {"scenario":"O18","status":"not-run","reason":"precise missing prerequisite"}`. A zero test-process exit alone is insufficient: the runner checks that exactly one scenario executed rather than remaining ignored. Tests must not call the locking wrapper recursively; any required Cargo subprocess is already protected by the suite's outer lock.
+
+`NABEDRA_OLTP_BINARY` names the copied actual server. `--olap-binary` supplies `NABEDRA_OLAP_BINARY` for parity; `--provider-config` supplies an explicit provider test configuration. Real cloud scenarios require actual configured access and approved bounded resources. Modeled provider evidence does not replace them. Unavailable external checks stay `not-run` while local implementation and integration continue.

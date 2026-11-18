@@ -1,0 +1,36 @@
+---
+title: "Limits"
+description: "Look up request, query, schema, stream, and Events limits."
+---
+
+## Database
+
+| Limit | Value | Scope |
+| --- | --- | --- |
+| Encoded JSON, including envelope | 8 MiB per request and response | Database operations |
+| Insert batch and collected query result | 10,000 rows | Both engines |
+| Schema | 1 to 128 nonnullable columns | Both engines |
+| Table and column names | 1 to 64 ASCII characters, matching `[A-Za-z_][A-Za-z0-9_]{0,63}` | Both engines |
+| Query predicate depth | 32 levels | Both engines |
+| Logical table | 100,000 rows and 64 MiB decoded payload | OLAP |
+| Catalog | 1 MiB | OLAP |
+| New closed Parquet partition | 64 MiB, including metadata and footer | OLAP |
+| Stream open request | 128 KiB encoded JSON | OLAP streaming |
+| Stream batch | 2 MiB encoded and at most 10,000 requested rows | OLAP streaming |
+| Stream lookahead | Up to 2 batches, subject to capacity | OLAP streaming |
+| Shared snapshot | Up to 64 shards | OLAP streaming |
+
+Encoded bytes can hit the cap before the row count. `collect()` fails if the result exceeds a cap. Use an explicit limit, narrower projection, or an OLAP stream. `count()` returns a scalar. Partitioning does not raise logical OLAP table caps. [Worker resource configuration](/server/worker-runtime#configuration-files) sets queue capacity and result retention independently.
+
+## Events
+
+| Limit | Value |
+| --- | --- |
+| Partitions per cluster | 4,095 data partitions plus the metadata group |
+| Publish record | 64 KiB encoded, including UUID |
+| Publish batch | Up to 100 records and 1 MiB encoded, including the envelope |
+| Poll page | Up to 100 events and 1 MiB |
+| JSON nesting | Up to 64 nested containers |
+| OLAP sink | Up to 32 workers over a configured range of at most 10,000 partitions |
+
+A poll page can be short. A subscription's lease and unacknowledged events remain subject to expiry and retention. See [Events delivery](/events/python-client) and the [sink configuration](/events/olap-sink).

@@ -1,0 +1,72 @@
+---
+title: "Write an Events subscription to OLAP"
+description: "Configure a supervised ingestion loop that writes durable rows before acknowledging events."
+---
+
+Create a destination using the normal OLAP API and record the returned UUID.
+
+```python
+from nabedra import Database
+
+db = Database("https://olap.example", token=database_token, mode="olap", database="analytics")
+table = db.create_table(
+    "order_events",
+    {"event_key": str, "partition": int, "offset": str, "published_at": str, "data": str},
+    key="event_key",
+)
+print(table.id)
+```
+
+Use that UUID in a sink configuration. The range includes `start` and excludes
+`stop`.
+
+```json
+{
+  "events": {
+    "url": "https://events.example",
+    "token_env": "ORDER_EVENTS_READ_TOKEN",
+    "topic": "orders",
+    "subscription": "analytics"
+  },
+  "olap": {
+    "url": "https://olap.example",
+    "token_env": "ORDER_EVENTS_OLAP_TOKEN",
+    "database": "analytics",
+    "table": "order_events",
+    "table_id": "fbb50b2a-a35f-43c5-9e17-eac70d974b12"
+  },
+  "partitions": {"start": 0, "stop": 8},
+  "workers": 4,
+  "max_in_flight": 2,
+  "batch_size": 100
+}
+```
+
+```sh
+python -m nabedra.events.sink --config orders-to-olap.json
+```
+
+Set `olap.database` when the destination is an application gateway that
+requires a database selector. For a direct OLAP endpoint, omit it. The direct
+endpoint sets the storage scope from its connection configuration and token.
+
+Each endpoint also accepts optional `ca_file`, `timeout` in seconds, and
+`allow_insecure` for local HTTP fixtures. The sink uses at most 32 workers
+over up to 10,000 partitions. Optional top-level `poll_interval`,
+`receipt_wait`, and `renew_interval` are seconds and default to 0.5, 2, and
+5. The sink renews earlier if its lease expiry is near. A standby sink can
+use the same config and acquire available claims.
+
+The sink acknowledges after the database confirms the insert. It keeps
+observing a known queued receipt across lease changes. After an ambiguous
+submit, expired receipt, conflict or database-wide shutdown, it reads the
+destination keys and resubmits missing rows with a fresh request identity.
+The primary key combines the topic UUID, partition and event UUID. The
+offset column stores a decimal string, and the data column stores canonical
+JSON. A replaced table UUID or a different row for the same key pauses the
+partition. Stop its sinks before changing the destination table, then start
+them with the new destination and the intended subscription checkpoint.
+
+Keep unacknowledged deliveries inside Events retention, including during
+OLAP outages. The sink inherits the database's existing table capacity
+limits. Size the destination for its ingest rate and retention.

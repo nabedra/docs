@@ -1,0 +1,49 @@
+---
+title: "Backup, restore, and migration"
+description: "Back up local OLTP, restore archive chains, and move an offline OLAP database into OLTP."
+---
+
+There are two kinds of offline data movement. OLTP backup and restore use the native archive format and can use a linked archive chain. OLAP-to-OLTP migration uses an framed interchange file containing the exported schema and rows.
+
+<Warning>
+Stop writers and verify that their processes have exited before taking an offline export or backup. Keep the original storage and backup files until you have verified the new database.
+</Warning>
+
+## Back up and restore local OLTP
+
+Use the checkout's `oltp` build. Supply the original database selector and data directory, and set `NABEDRA_TOKEN` in the environment.
+
+```bash
+nabedra-db database backup --data-dir ./nabedra-local-data --database local \
+  --output ./local-full.backup --cold-start
+```
+
+To write a subsequent archive, supply `--previous PATH` with the prior archive. Retain the full base and all required incremental archives. Restore into a fresh destination directory path.
+
+```bash
+nabedra-db database restore --input ./local-full.backup \
+  --archive ./local-incremental.backup --data-dir ./restored-data --database local
+```
+
+Omit `--archive` for a single full backup. Repeat it for additional chain files in order. `--restore-ts` selects a transaction timestamp within the available history. The archive path through the local CLI uses files. The optional `oltp-backup-s3` build includes an S3 archive repository for configured operator workflows. Restore opens committed state with an empty request queue.
+
+## Move OLAP tables to OLTP
+
+Keep separately built binaries for OLAP and OLTP. With the OLAP server stopped, use its configured storage to export.
+
+```bash
+/path/to/olap/nabedra-db database export --config ./olap-config.json \
+  --output ./olap-export.nabedra --confirm-writers-stopped
+/path/to/oltp/nabedra-db database import --input ./olap-export.nabedra \
+  --data-dir ./imported-data --database local
+```
+
+Import requires a destination path that does not exist. It validates the interchange stream before publishing the restored data directory. Verify the expected table IDs, schemas, rows and counts before switching clients. Use the OLTP binary to serve the imported directory. Inspect the command summary and follow the [restart instructions](/server/oltp#restart-and-recover) if the store requires a new run.
+
+## Upgrade an older OLAP catalog
+
+An OLAP format 1, 2 or 3 catalog requires an explicit upgrade to format 4. Shut down incompatible writers and retain your storage configuration. Standalone startup accepts `serve --migrate-catalog`. A configured cluster can use the [CLI migrate command](/server/clusters#migrate-an-existing-catalog) with its cluster UUID.
+
+Catalog upgrade keeps the existing file references. It establishes a fenced catalog for future writes. This upgrade and OLAP-to-OLTP import use different formats and commands.
+
+[Archive CLI source](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/oltp_runtime/archive_cli.rs) · [Interchange format source](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/migration_interchange.rs)

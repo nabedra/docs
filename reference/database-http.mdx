@@ -1,0 +1,102 @@
+---
+title: "Database HTTP API"
+description: "Send authenticated JSON operations, inspect receipts, and check database health."
+---
+
+Use the server's base URL. Send `Authorization: Bearer <token>` on data requests and `Content-Type: application/json` on JSON submissions. Use native HTTPS and a trusted CA for remote connections.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /health/live` | Check that the API process answers. |
+| `GET /health/ready` | Check whether the deployment is ready. On standalone OLAP this probes a fresh catalog read. |
+| `POST /v1/operations` | Submit an operation and wait for its terminal response. |
+| `POST /v1/requests` | Submit the same envelope and get a receipt. A new queued submission returns HTTP 202. |
+| `GET /v1/requests/{run_id}/{request_id}` | Observe a receipt using the credentials for the same database. |
+| `GET /v1/runtime/stats` | Read runtime counters on the OLTP API. |
+| `POST /v1/cluster/operations` | Send protected cluster operations on supported deployments. On OLAP use the separate admin bearer and the [cluster client](/server/providers#inspect-cluster-state). |
+
+Health endpoints do not require a data token. Readiness does not prove write access. Status and body details depend on the engine and deployment. For gateway use, `X-Nabedra-Database` is an application selector and must be authorized by middleware. The trusted storage header is reserved for the server gateway.
+
+## Request and response
+
+Send a UUID in `request_id`, one operation name, and an object in `payload`. Save the exact body for an uncertain retry.
+
+```bash
+request_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer ${NABEDRA_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  --data "{\"request_id\":\"${request_id}\",\"operation\":\"table.list\",\"payload\":{}}" \
+  http://127.0.0.1:8000/v1/operations
+```
+
+An empty database returns HTTP 200 with the request ID and an empty list.
+
+```json
+{
+  "request_id": "00000000-0000-4000-8000-000000000001",
+  "data": []
+}
+```
+
+A new asynchronous submission returns an envelope with `request_id`, `run_id`, and `state: "queued"`. Subsequent observations include the state and, when applicable, a result or an error. Use the [receipt lifecycle](/python/receipts) to interpret accepted, terminal, or abandoned work.
+
+## Operation payloads
+
+| Operation | Payload fields | Success `data` |
+| --- | --- | --- |
+| `table.create` | `name`, `schema`, `key`, `format` | Table descriptor |
+| `table.describe` | `name` | Table descriptor |
+| `table.list` | Empty object | Descriptors sorted by name |
+| `table.drop` | `table_id` | `null` |
+| `table.insert` | `table_id`, `row` | `null` |
+| `table.insert_many` | `table_id`, `rows` | Inserted count |
+| `table.get` | `table_id`, `key` | Row or `null` |
+| `table.update` | `table_id`, `key`, `values` | Boolean |
+| `table.upsert` | `table_id`, `row` | `null` |
+| `table.delete` | `table_id`, `key` | Boolean |
+| `query.collect` | `table_id`, `query` | Array of rows |
+| `query.count` | `table_id`, `query` | Integer count after limit |
+| `query.explain` | `table_id`, `query` | Plan string |
+
+A descriptor has `id`, `name`, `schema`, `key`, and `format`. A create payload uses `format: "parquet"` for either engine, and `schema` maps names to `utf8`, `int64`, `float64`, or `bool`. Row objects map names to values. A JSON number such as `3.0` fits a float column and `3` fits an integer column. Keys must be strings or signed 64-bit integers. See [table validation](/python/tables).
+
+## Query object
+
+Supply all four fields and set unused fields to `null`.
+
+```json
+{
+  "select": ["id", "age"],
+  "filter": {
+    "op": "and",
+    "args": [
+      {"op": "ge", "column": "age", "value": 18},
+      {"op": "eq", "column": "active", "value": true}
+    ]
+  },
+  "order_by": {"column": "age", "desc": true},
+  "limit": 100
+}
+```
+
+Comparisons use `eq`, `ne`, `gt`, `ge`, `lt`, and `le`. `and` and `or` take an `args` array. `not` takes one `arg`. The server filters, sorts, limits, and projects. Ascending primary key breaks explicit sort ties.
+
+## Errors
+
+Errors include `request_id` when the server can recover it and an `error` object containing `code`, `message`, and `outcome`.
+
+| Status | Codes |
+| --- | --- |
+| 400 | `validation_error`, `unsupported_operation` |
+| 401 | `unauthorized` |
+| 404 | `not_found` |
+| 409 | `conflict` |
+| 413 | `limit_exceeded` |
+| 429 | `overloaded` |
+| 500 | `internal_error` |
+| 503 | `storage_unavailable`, `outcome_unknown`, engine-specific temporary errors |
+
+Treat `outcome: "unknown"` as an unresolved mutation. Recover the original receipt or reconcile the durable state before issuing a new logical write.
+
+[Wire types](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/protocol.rs) · [Response encoding](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/api/response.rs)

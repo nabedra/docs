@@ -1,0 +1,74 @@
+---
+title: "Publish and consume in Python"
+description: "Publish idempotent records, claim subscription leases, and acknowledge processed events."
+---
+
+Install the Python client from the [source checkout](/guides/installation). The `nabedra.events` package connects to an Events broker with its own URL,
+bearer token and TLS trust settings. A producer publishes to a topic and
+partition. Each named subscription maintains its own checkpoint for that
+partition. An operator creates topics and subscriptions before use.
+
+## Publish events
+
+```python
+from uuid import uuid4
+
+from nabedra.events import Events
+
+producer = Events("https://events.example", token=publish_token)
+event_id = uuid4()
+event = producer.publish(
+    "orders", partition=7, event_id=event_id, data={"order_id": "A-42"},
+)
+assert event.event_id == event_id
+```
+
+Save the partition, UUID and payload together before sending an event that
+needs retry. Within retention, identical retries return their original
+receipts. Changed data for the same UUID and partition conflicts.
+`publish_batch` accepts up to 100 `PublishRecord` objects or dictionaries with
+`event_id` and `data` fields. It returns receipts in input order from one atomic
+partition write. Data uses finite JSON values and supports up to 64 nested
+containers. The encoded request is limited to 64 KiB per record, including
+the UUID, and 1 MiB per batch, including the batch envelope. Batch receipts
+also have a 1 MiB limit.
+`client.partitions("orders")` yields partition IDs and fetches discovery pages
+as needed.
+
+An `EventsUnknownOutcomeError` means the write may have committed. For a
+publish, retry the same partition, UUID and data. Other `EventsError` instances
+include a code and may carry the HTTP status, `Retry-After` duration in seconds,
+or earliest available offset. If a claim still has an unknown outcome after
+the client's retry, the exception carries its `claim_id`. Supply
+`claim(claim_id=error.claim_id)` to continue recovering that claim.
+
+## Claim and consume a subscription
+
+```python
+consumer = Events("https://events.example", token=read_token)
+subscription = consumer.subscription("orders", "fulfillment", partition=7)
+with subscription.claim() as lease:
+    batch = lease.poll(limit=100)
+    for event in batch.events:
+        process_order(
+            event.data,
+            idempotency_key=(event.topic_id, event.partition, event.event_id),
+        )
+    if batch.events:
+        lease.ack(batch, through=batch.events[-1].offset)
+```
+
+A claim reserves one subscription partition until its lease expires or is
+released. Call `lease.renew()` during long processing and use
+`lease.expires_at` to see the deadline. Acknowledging a processed prefix leaves
+the remainder available for redelivery. Event offsets and checkpoints are
+Python integers. The context manager releases the claim, and an identical
+ack can be retried during the same lease if the response is lost.
+`checkpoint_expired` requires an operator to choose a new checkpoint.
+
+The client verifies HTTPS using system trust by default. `ca_file` adds a
+private CA. `allow_insecure=True` enables HTTP for local fixtures.
+
+
+
+See the [HTTP reference](/reference/events-http) for route shapes and the [OLAP sink](/events/olap-sink) for a managed ingestion loop.

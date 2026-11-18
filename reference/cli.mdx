@@ -1,0 +1,42 @@
+---
+title: "Command-line reference"
+description: "Look up commands for nabedra, nabedra-db, and nabedra-events."
+---
+
+The Python package installs `nabedra`. The Rust database crate installs `nabedra-db`. The Events crate builds a separate `nabedra-events` binary. Run the specific subcommand with `--help` for options supported by your build.
+
+## Python launcher and administration
+
+Use `nabedra database <command>` or `python -m nabedra database <command>`.
+
+| Command | Purpose |
+| --- | --- |
+| `nabedra --version --json` | Report the Python and resolved native server versions. |
+| `database init` | Create an OLAP configuration and protected authentication material for fixed or serverless mode. |
+| `database serve --config PATH` | Supervise the configured API and local workers. |
+| `database worker --bootstrap PATH` | Run a worker with its protected bootstrap document. |
+| `database doctor --config PATH --json` | Validate configuration and perform a read probe. |
+| `database cluster status --url URL --admin-token-file PATH` | Inspect enrollment, worker capacity, and policy state. |
+| `database cluster scale N --url URL --admin-token-file PATH` | Set desired worker count through a configured provider. |
+| `database migrate --storage URL --region REGION --cluster-id UUID --confirm-writers-stopped` | Upgrade a stopped OLAP catalog for its intended cluster. |
+
+Use the checkout's matching CLI and native server together. See [cluster setup](/server/clusters) and [installation](/guides/installation). For an existing cluster, `--cluster-name` selects the stored identifier. It defaults to `Nabedra` for new clusters.
+
+## Native database server
+
+| Command | Engine or scope |
+| --- | --- |
+| `nabedra-db --version` | Show the native version and, in checkout builds, the engine suffix. |
+| `serve` | Local server. OLAP reads [S3 configuration](/server/configuration). OLTP requires [a data directory](/server/oltp#standalone-flags). |
+| `api --config PATH` | Supervised API for the selected engine. |
+| `worker --bootstrap PATH` | Worker process for the selected engine. |
+| `doctor --config PATH` | Native OLAP read-only configuration probe. |
+| `database migrate`, `database export` | OLAP catalog upgrade and offline interchange export. |
+| `database backup`, `database restore`, `database import` | OLTP archive and interchange operations. |
+| `data-worker --bootstrap PATH`, `growth-plan` | Experimental [OLTP deployment](/operations/oltp-deployment) and capacity planning. |
+
+See [backup, restore, and migration](/operations/backup-and-migration) for command examples and storage prerequisites.
+
+## Events broker
+
+Use `nabedra-events serve --config PATH` to start the broker. `issue-grant --config PATH --grant PATH` reads a protected signing configuration and a grant definition. `backup` and `restore` use the broker's archive workflows. See [running an Events broker](/events/broker) and the [AWS runbook](/events/aws#back-up-and-restore) for the full commands.

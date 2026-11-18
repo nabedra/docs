@@ -1,0 +1,98 @@
+---
+title: "Run an OLAP cluster"
+description: "Supervise API and worker processes, configure fixed or shared storage, and validate enrollment."
+---
+
+Use the [repository CLI](/guides/installation) with the OLAP build to run an API and its local workers under one supervisor.
+
+## Initialize and supervise shared compute
+
+```sh
+nabedra database init --mode serverless \
+  --control-storage s3://nabedra-ops/production/ --region eu-west-1 \
+  --data-token-file /run/secrets/nabedra-data --output nabedra-database.json \
+  --non-interactive
+nabedra database doctor --config nabedra-database.json --json
+nabedra database serve --config nabedra-database.json --local-workers 2 --threads-per-worker 4
+```
+
+`init` provisions nothing and refuses overwrites. It writes version 2 JSON and protected auth material, printing paths only. Preserve those secrets on protected storage. Version 1 remains supported. In serverless mode the configured storage is operator control storage; customer credentials belong only in trusted request context. Use distinct admin, enrollment and gateway data tokens.
+
+`serve` owns its API and local worker processes in the foreground. `nabedra.serve.launched` means the API is ready and worker processes have launched; check cluster status for worker enrollment. `--local-workers` counts processes and `--threads-per-worker` bounds each process. The Rust `serve --workers` flag retains its thread meaning. Local replicas on one host do not provide separate failure domains. Signals drain and reap owned children; a failed child produces a failing status. Explicit `--cold-start` retains its fencing meaning; do not use heartbeat expiry as proof that old writers stopped.
+
+The CLI uses `Nabedra` as the cluster identifier for new storage. When reopening
+an existing cluster, pass `--cluster-name <stored-name>` to retain its original
+identifier. The project rename does not migrate stored cluster identities.
+
+## Run fixed storage
+
+Fixed mode uses configured operator credentials and existing token behavior:
+
+```sh
+nabedra database serve --mode fixed --storage s3://app-a/nabedra/ --region eu-west-1
+nabedra database worker --bootstrap /run/secrets/worker.json
+nabedra database cluster status --url https://compute.example.com \
+  --admin-token-file /run/secrets/admin --json
+nabedra database cluster scale 2 --url https://compute.example.com \
+  --admin-token-file /run/secrets/admin --json
+```
+
+Scaling provisions only through a configured provider. `doctor` checks configuration, versions, secret permissions and storage reads. It never tests writes; a passing diagnosis does not establish write permissions. Exit codes are 0 for success, 2 for argument/configuration errors and 1 for runtime failures, with signal termination preserved.
+
+## Migrate an existing catalog
+
+Before migrating an existing catalog, stop every old writer and choose the intended owning cluster UUID from the cluster configuration. Owner identity cannot be inferred safely:
+
+```sh
+nabedra database migrate --storage s3://app-a/nabedra/ --region eu-west-1 \
+  --cluster-id 11111111-1111-4111-8111-111111111111 --confirm-writers-stopped
+```
+
+Do not perform live cross-cluster transfers. Complete worker shutdown abandons outstanding requests; committed mutations remain durable. Pending requests are replicated in worker RAM and are never replayed from object listings or Redis.
+
+## Local image and deployment
+
+```sh
+docker build -t nabedra-database:local .
+docker run --rm -p 8000:8000 \
+  --mount type=bind,src="$PWD/deploy",dst=/etc/nabedra,readonly \
+  nabedra-database:local database serve --config /etc/nabedra/nabedra-database.json
+```
+
+Put the config and protected secret files under the mounted directory with container-readable paths. Configure a workload role for control storage, verified TLS for external API/worker links, and an explicit reachable bind/advertise address. Listeners default to loopback. Separate workers use `database worker --bootstrap /run/secrets/worker.json`. No daemonization, cloud provisioning or registry upload occurs automatically.
+
+The recorded CLI and gateway checkpoint passed fresh-prefix installation and 13 live-S3 assertions. The run covered worker enrollment, database isolation, replay, receipt authorization, signal drain and catalog migration. See the [execution ledger](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md) for commands, failure regressions and scope. Live STS rotation, IAM revocation, worker crash recovery and full scheduler/load acceptance remain separate.
+
+## Local process acceptance
+
+A local process acceptance runner starts a real HTTP object store, a supervised
+API and two manually enrolled worker processes with synthetic credentials. It
+checks public data operations, TCP peer/self partition jobs, competing writes,
+exact replay after a lost response and API restart, and process shutdown.
+Run from the repository root using the existing dependency cache:
+
+```sh
+CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+  cargo build --manifest-path server/Cargo.toml --locked --no-default-features --features olap --bin nabedra-db
+python3.11 scripts/acceptance_nodes.py --binary server/target/debug/nabedra-db
+```
+
+The runner needs Python 3.11+, its standard library and loopback TCP. It creates and
+removes its own SQLite store and configuration. It reads no dotenv or cloud
+profiles. Its startup exchange demonstrates `nabedra-db api --config PATH`
+over the inherited `NABEDRA_SUPERVISOR_FD` socket and
+`nabedra-db worker --bootstrap PATH`. An API requires that supervisor
+exchange; it is not an unsupervised standalone command. `api` also accepts
+`--migrate-catalog` and `--cold-start` with the same migration and cold-run
+confirmation requirements described above.
+
+The process fixture uses the HTTP object backend. Supervised OLAP supports heterogeneous workers, replicated in-memory requests, fenced publication, and optional provider callbacks. To run a supervised S3 cluster, build with the `s3` feature and configure operator credentials and storage as above.
+
+The scheduling, failure, and provider fixtures are
+`scripts/acceptance_scheduler.py`, `scripts/acceptance_scheduler_load.py`, and
+`scripts/acceptance_providers.py`. Their case mappings and execution results are
+recorded in [scheduler evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md).
+See [provider configuration](/server/providers) for managed
+workers and the live-infrastructure verification boundary. Signal shutdown drains
+owned local work; provider termination additionally requires a distributed idle
+proof.

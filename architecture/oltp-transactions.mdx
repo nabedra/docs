@@ -1,0 +1,77 @@
+---
+title: "OLTP serialization and recovery"
+description: "Read the conditions under which compatible row operations preserve serialization and real-time order."
+---
+
+This is the serialization argument required by P0 of [the OLTP plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/oltp-engine.md). It describes the target distributed protocol. The current standalone and single-group consensus implementations do not establish these assumptions for multiple shards. Read [the executed evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) separately.
+
+## Supported operations
+
+Each existing call is one transaction. Read-only operations may scan predicates, order rows and apply a limit. A mutating call reads and writes a known bounded set of primary keys, including absence checks. Create/drop also require lifecycle guards. There are no predicate mutations, multi-call transactions or application read-modify-write transactions. Adding those operations invalidates this restricted argument unless their read and predicate dependencies receive additional validation.
+
+The standalone argument is recorded in [the local engine design](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/oltp/DESIGN.md). A single replicated group can order atomic operations directly and authorize reads with a fresh quorum barrier plus applied-position wait. That does not establish a common snapshot or atomic commit across independent groups.
+
+The current single-group dependency spike logs deterministic `Operation` commands. It is not the target cold-start implementation: replaying such a command still evaluates an application operation. The production command families must instead replay fixed prepared storage changes and authoritative decisions. Control, timestamp and status command types cannot contain application `Request`, `Operation` or `Row` payloads.
+
+The agreed group roles are current `Control` authority, monotonic `Timestamps`, partitioned `Status`, MVCC `Catalog`, and `Data` for one table/shard. Catalog and data use shared version/intent primitives. Enrollment identity and current status authority are not stale application snapshots; schema/name/drop records and published index definitions are.
+
+## Assumptions that implementation must establish
+
+1. A fenced, replicated timestamp allocator returns a strictly increasing value for each allocation. An allocation invoked after another allocation completes returns a larger value. Restart, leader replacement and reserved ranges cannot move the allocator backward or return an old cached timestamp to a new operation.
+2. A read receives one timestamp `s` and retains it across every participating shard. A mutation receives its read timestamp before reading and obtains its commit timestamp `c > s` only after all participants have durably prepared.
+3. Each prepare atomically records private data/index changes and exclusive key intents. It validates existing and absent target keys against the transaction snapshot and rejects conflicting newer committed versions. Prepared intent ownership survives coordinator loss and excludes conflicting writers until an authoritative decision resolves it.
+4. The status group commits at most one decision for a logical request attempt. Its immutable participant manifest and digest bind that decision to the prepared changes. Attempt generations cannot advance while an earlier attempt might have committed.
+5. Strong shard reads first establish authority and reach the required applied position. A read at `s` returns committed versions with timestamps at most `s`. It resolves every relevant unresolved intent through its status group, including intents for absent rows and inserted/deleted index entries. Unavailability yields waiting or a typed failure, never a successful partial result.
+6. Every scan, including an ordered scan that stops at a limit, encounters all private entries capable of changing its result. An incomplete index cannot be used. Snapshot lineage and schema guards remain valid through splits, movement and drop.
+7. COMMIT is durable before success, and its changes are either applied or resolvable by every successful participating read. Data, indexes, decision application and applied-log positions are idempotent and locally atomic.
+8. An operation or decision checks its active run and owner fence in the same durable state transition. A stale owner cannot create a new commit after that group's newer fence.
+9. Timestamp assignment and snapshot retention cannot race garbage collection. `BeginSnapshot` allocates `s` and installs its storage-retention pin in one timestamp-group transition. GC uses the timestamp-ordered pin floor, unresolved transactions and backup/transfer floors, never a raw reserved allocator watermark. Pin release follows owned-work settlement. A cold-run fence can clear abandoned application pins after required recovery fences, but cannot clear an unfinished backup/transfer pin without its own completion or abort proof.
+10. Consensus participants follow the authenticated protocol; Raft does not tolerate Byzantine replicas. Service boundaries verify bounded pages of queue-copy acknowledgments against the authoritative ready-worker set before creating an opaque proof reference. An enrolled worker cannot submit an arbitrary raw release command. The reference binds the pin, authority, ready-set revision/root/count, terminal version and digest, and accepted context. Replicas apply the validated deterministic command and check its current authority and release revision in the same durable transition.
+
+These are proof obligations, not consequences of choosing RocksDB or a Raft library.
+
+## Serialization order
+
+Place each committed mutation at its commit timestamp and each successful read at its snapshot timestamp. Unique allocations provide a total order. Internal aborted attempts have no visible writes and do not enter that order; a retried logical request contributes at most one committed attempt.
+
+For a read at `s`, a mutation that commits at `c <= s` prepared all its intents before `c` was allocated. Those intents therefore precede allocation of `s`. Authority and applied-position checks make them available to the reader even after leader replacement. The reader either sees the finalized version or resolves the intent through the unique COMMIT record. It cannot skip an inserted row merely because its committed base version is absent locally. A mutation at `c > s` contributes the previous version. Thus every shard contributes the same committed cut, including when participant finalization is delayed.
+
+A mutation reads its target keys at its snapshot and prepares them exclusively. If a conflicting mutation already committed a newer target version, validation rejects the stale attempt. If the conflicting mutation still owns an intent, the new attempt must wait or abort under the bounded conflict policy. Successful preparations therefore preserve the target-key values and absence conditions used to compute the committed result. An unrelated-key mutation may proceed independently because it cannot change that operation's reads. This is why extending the API to predicate mutations needs range validation.
+
+The status group's unique COMMIT and mandatory intent resolution expose a multi-shard batch at one timestamp. Applying one participant earlier cannot expose a successful torn snapshot. A duplicate-key conflict or failed prepare produces no COMMIT and no visible prefix of the batch. Lifecycle guards similarly order create/drop against prepared writers and preserve immutable table IDs for captured reads.
+
+## Real-time order
+
+If a mutation completes before another operation begins, its commit timestamp was already allocated and its decision was durable. The later operation's snapshot allocation is larger, so it observes that mutation or a later serially ordered overwrite. If a read completes before a new mutation begins, the mutation's read and commit timestamps follow that read's timestamp. Completed operations therefore retain response-before-invocation order.
+
+An unfinished mutation may obtain `c <= s` before its decision is durable while a read is already running. The read must resolve or wait on its intents. If the mutation commits, serializing it before that overlapping read is permitted; if it aborts, the read sees the prior versions. A timeout cannot locally invent the decision.
+
+## Recovery and cold start
+
+A participant timeout cannot authorize rollback. A surviving coordinator resolves the authoritative status record. Reapplying a known decision does not rerun application logic or create another logical mutation.
+
+Likewise, absence from a live storage view after a native write error cannot prove rollback. The pinned RocksDB write path can reach WAL persistence before updating the live memtable. A pool with uncertain write state must recover authoritative storage state before new execution or recomputation. Recovery-required state must be shared by every handle to that physical pool. O29 distinguishes a deterministic model of this interval from actual native fsync or power-loss fault injection.
+
+Cold start requires authoritative shutdown evidence or explicit authorization. It fences metadata, timestamp, data and status authorities before admitting new mutations. Group fences need not become visible simultaneously, so bootstrap must finish the required fences and reconcile decisions before aborting old preparations. A COMMIT ordered before its group's new fence remains committed. A new old-owner decision ordered after that fence fails. Previously committed state may finish applying after the fence using its existing decision proof.
+
+The new run has an empty application queue. Database WAL replay, decision application and cleanup of private preparations do not reconstruct or resubmit abandoned application requests.
+
+Storage-retention pins contain only an opaque pin identity, run/authority metadata and timestamp. They contain no application body, query, authorization material or executable operation and cannot recreate work. Same-run takeover preserves the pin for a request recovered from surviving worker RAM. After complete worker shutdown, the new run abandons those requests and removes their old application pins through the fenced cleanup path.
+
+The existing external request envelope has no client epoch. Retiring a run therefore does not by itself make it safe to forget a committed request UUID. Keep a durable identity/digest terminal index across runs; payload retention may expire explicitly, but a delayed duplicate must not become a new mutation. Any later tombstone pruning needs a separate protocol argument.
+
+The same issue exists before Prepare. If every RAM holder stops after acceptance, a delayed raw submit has no required original-run token that distinguishes it from new work. The target admission protocol therefore reserves the UUID, body digest and original run in the appropriate Status partition before acceptance. This non-executable metadata contains no operation, query, authorization body or queue order. Same-run retries can finish incomplete admission; an abandoned old-run reservation cannot become new-run work. A durable terminal decision still supplies its exact result. Reservations cannot reconstruct the lost queue, so complete worker shutdown still abandons outstanding application work. This adds a durable metadata write and requires Status availability at admission. History remains on disk with bounded RAM caches until a separately designed client epoch makes pruning safe. The implementation and O13/O15/Q02/R04 raw-resubmit assertions remain required.
+
+A fresh Control read followed by a separate TSO pin release is insufficient to order membership changes. The proposed transition first records a pending ready-set revision in Control, then fences the TSO release guard to that revision, then publishes the new ready set in Control. A release with old copy evidence may win before the TSO fence while the old view remains current. It must fail after the fence, and the new view cannot publish before that fence is acknowledged. Each phase needs an immutable transition identity and expected revision so interruption and retry cannot publish a different membership. The joiner copies outstanding and terminal RAM state before readiness. These ordering rules require implementation and interruption tests; they are not established by the current local checkpoint.
+
+## Required falsification tests
+
+| Contract cases | Histories that must fail if an assumption is removed |
+| --- | --- |
+| O07/O08 | Delay one participant after COMMIT; race overlapping batches and absent-key inserts; assert exact rows and one decision. |
+| O09 | Allocate a read between prepare and commit; delay allocation replies; replace the allocator; scan through pending absent-row and secondary-index intents. |
+| O10/O11 | Lose the decision reply, kill the coordinator and replay application; inject storage failures around sync and applied-position updates. |
+| O12/O16/O28 | Pause index publication, split/move ranges and interrupt paged scans while a snapshot remains pinned. |
+| O15; R04/R05 | Order an old COMMIT on each side of a group fence, interrupt bootstrap and resume an old owner. |
+
+A serial operation oracle and accepted-identity accounting must check the resulting histories. Passing the local storage suite alone does not discharge these distributed obligations. Provider tests are additionally needed for EBS durability, volume ownership and AZ failure claims.
