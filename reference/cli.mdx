@@ -3,11 +3,11 @@ title: "Command-line reference"
 description: "Look up commands for nabedra, nabedra-db, and nabedra-events."
 ---
 
-The Python package installs `nabedra`. The Rust database crate installs `nabedra-db`. The Events crate builds a separate `nabedra-events` binary. Run the specific subcommand with `--help` for options supported by your build.
+The Python package installs `nabedra`. The Rust database crate installs `nabedra-db`. Run the specific subcommand with `--help` for options supported by your build.
 
 ## Python launcher and administration
 
-Use `nabedra database <command>` or `python -m nabedra database <command>`.
+For a launcher that recognizes `nabedra-db`, [install the matching CLI and server from the source archive](/guides/installation#install-the-cli-and-server-together). Use `nabedra database <command>` or `python -m nabedra database <command>`.
 
 | Command | Purpose |
 | --- | --- |
@@ -20,18 +20,21 @@ Use `nabedra database <command>` or `python -m nabedra database <command>`.
 | `database cluster scale N --url URL --admin-token-file PATH` | Set desired worker count through a configured provider. |
 | `database migrate --storage URL --region REGION --cluster-id UUID --confirm-writers-stopped` | Upgrade a stopped OLAP catalog for its intended cluster. |
 
-Use the checkout's matching CLI and native server together. See [cluster setup](/server/clusters) and [installation](/guides/installation). For an existing cluster, `--cluster-name` selects the stored identifier. It defaults to `Nabedra` for new clusters.
+For an existing cluster, `--cluster-name` selects the stored identifier. It defaults to `Nabedra` for new clusters. See [cluster setup](/server/clusters) for examples.
 
 ## Native database server
 
+The published Cargo package runs OLAP. Use the [preview server installs](/guides/installation#install-a-preview-server) for OLTP or offline data interchange.
+
 | Command | Engine or scope |
 | --- | --- |
-| `nabedra-db --version` | Show the native version and, in checkout builds, the engine suffix. |
+| `nabedra-db --version` | Show the native version. Builds from the source archive also show the engine suffix. |
 | `serve` | Local server. OLAP reads [S3 configuration](/server/configuration). OLTP requires [a data directory](/server/oltp#standalone-flags). |
 | `api --config PATH` | Supervised API for the selected engine. |
 | `worker --bootstrap PATH` | Worker process for the selected engine. |
 | `doctor --config PATH` | Native OLAP read-only configuration probe. |
-| `database migrate`, `database export` | OLAP catalog upgrade and offline interchange export. |
+| `database migrate` | OLAP catalog upgrade. |
+| `database export` | Offline interchange export with the OLAP preview. |
 | `database backup`, `database restore`, `database import` | OLTP archive and interchange operations. |
 | `data-worker --bootstrap PATH`, `growth-plan` | Experimental [OLTP deployment](/operations/oltp-deployment) and capacity planning. |
 
@@ -39,4 +42,6 @@ See [backup, restore, and migration](/operations/backup-and-migration) for comma
 
 ## Events broker
 
-Use `nabedra-events serve --config PATH` to start the broker. `issue-grant --config PATH --grant PATH` reads a protected signing configuration and a grant definition. `backup` and `restore` use the broker's archive workflows. See [running an Events broker](/events/broker) and the [AWS runbook](/events/aws#back-up-and-restore) for the full commands.
+Use the `nabedra-events` executable in the [broker image](/events/broker) or [build it for Linux](/events/aws#provision-the-brokers) and run it from `server/events/target/release` in the extracted archive.
+
+Use `nabedra-events serve --config PATH` to start the broker. `issue-grant --config PATH --grant PATH` reads a protected signing configuration and a grant definition. `backup` and `restore` use the broker's archive workflows. See the [AWS runbook](/events/aws#back-up-and-restore) for the full commands.

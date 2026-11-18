@@ -5,6 +5,8 @@ description: "Configure a standalone OLAP server, S3, resource ceilings, and nat
 
 These settings configure the standalone OLAP server with S3. A [supervised OLAP cluster](/server/clusters) reads its own API configuration and worker bootstrap files. See the [OLTP guide](/server/oltp) for local RocksDB configuration.
 
+[Install the latest native server with Cargo](/guides/installation#install-the-native-server) to run `nabedra-db` from your `PATH`. For an [OLAP preview installation](/guides/installation#install-a-preview-server), use `./.nabedra-olap/bin/nabedra-db` in the commands below from the directory where you installed it.
+
 ## Environment variables
 
 | Environment variable | Requirement and meaning |
@@ -71,7 +73,7 @@ worker-memory request queue.
 For example:
 
 ```sh
-server/target/debug/nabedra-db serve --workers 4 --partition_size '64 KB'
+nabedra-db serve --workers 4 --partition_size '64 KB'
 ```
 
 `--partition-size '64 KB'` is equivalent. Units are mandatory and case-insensitive:
@@ -95,7 +97,7 @@ Without TLS flags, the listener serves HTTP. To serve native HTTPS on an
 explicit nonloopback address:
 
 ```sh
-server/target/release/nabedra-db serve --host 0.0.0.0 --port 8443 \
+nabedra-db serve --host 0.0.0.0 --port 8443 \
   --workers 4 --queue-size 64 \
   --tls-cert /path/to/server-cert.pem --tls-key /path/to/server-key.pem
 ```

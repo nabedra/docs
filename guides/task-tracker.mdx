@@ -5,21 +5,23 @@ description: "Create, query, update, and reopen an OLAP table using Python and S
 
 Create a task table, query it by priority, and check that updates survive a server
 restart. You need Python 3.11 or newer, Rust 1.94.1 or newer with Cargo,
-curl, and an existing S3 general purpose bucket. Run the shell commands from the
-root of the [documented source checkout](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0).
+curl, and an existing S3 general purpose bucket. Open a terminal in a directory
+where you want to keep the tutorial's Python environment.
 Use your Python executable in place of `python3.11` if you have a newer version.
 
 <Steps>
-<Step title="Install the client and build the server">
+<Step title="Install the client and server">
+
+Install the latest releases from PyPI and crates.io. Check the [native build prerequisites](/guides/installation#install-the-native-server) before running Cargo.
 
 ```sh
 python3.11 -m venv .venv
-.venv/bin/python -m pip install -e ./orm/python
-cargo build --locked --manifest-path server/Cargo.toml --bin nabedra-db
-server/target/debug/nabedra-db --version
+.venv/bin/python -m pip install --upgrade nabedra
+cargo install nabedra-database --locked
+nabedra-db --version
 ```
 
-The version should include `olap`. The default build includes S3 support.
+The default Cargo build includes S3 support. If your shell cannot find `nabedra-db`, check [Cargo's executable path](/guides/installation#install-the-native-server).
 
 </Step>
 <Step title="Configure and start the server">
@@ -35,7 +37,7 @@ export AWS_REGION='<bucket-region>'
 export NABEDRA_S3_BUCKET='<existing-bucket>'
 export NABEDRA_S3_PREFIX="task-tracker-$(.venv/bin/python -c 'import uuid; print(uuid.uuid4().hex)')/"
 export NABEDRA_TOKEN='<your-private-bearer-token>'
-server/target/debug/nabedra-db serve --host 127.0.0.1 --port 8000
+nabedra-db serve --host 127.0.0.1 --port 8000
 ```
 
 The generated prefix gives this run its own database. Keep this terminal open
@@ -52,8 +54,9 @@ curl --fail --silent --show-error --write-out '%{http_code}\n' http://127.0.0.1:
 </Step>
 <Step title="Connect and create a table">
 
-In terminal 2, set the same bearer token and start Python. Your client needs
-the token and server URL. The server uses the AWS credentials.
+In terminal 2, change to the directory where you created `.venv`. Set the same
+bearer token and start Python. Your client needs the token and server URL. The
+server uses the AWS credentials.
 
 ```sh
 export NABEDRA_TOKEN='<same-token-as-terminal-1>'
@@ -166,7 +169,7 @@ data. See [worker recovery](/server/worker-runtime#admission-and-recovery)
 for what happens to in-flight requests.
 
 ```sh
-server/target/debug/nabedra-db serve --host 127.0.0.1 --port 8000 --cold-start
+nabedra-db serve --host 127.0.0.1 --port 8000 --cold-start
 ```
 
 Rerun the readiness probe in a third terminal, then run this in the same Python session.
@@ -207,9 +210,9 @@ Expect `conflict`, a request UUID, and `not_applied`. If a write raises
 before submitting another write.
 
 For an oversized query result, select fewer columns or use a smaller limit.
-If ascending primary-key order works for your query, you can also
-[stream OLAP batches](/python/streaming). See [database limits](/reference/limits#database)
-for the request, result, and table caps.
+See [database limits](/reference/limits#database) for the request, result, and
+table caps. To stream batches in ascending primary-key order, see the
+[streaming preview](/python/streaming).
 
 </Step>
 <Step title="Finish the tutorial">

@@ -3,7 +3,7 @@ title: "Backup, restore, and migration"
 description: "Back up local OLTP, restore archive chains, and move an offline OLAP database into OLTP."
 ---
 
-There are two kinds of offline data movement. OLTP backup and restore use the native archive format and can use a linked archive chain. OLAP-to-OLTP migration uses an framed interchange file containing the exported schema and rows.
+There are two kinds of offline data movement. OLTP backup and restore use the native archive format and can use a linked archive chain. OLAP-to-OLTP migration uses a framed interchange file containing the exported schema and rows.
 
 <Warning>
 Stop writers and verify that their processes have exited before taking an offline export or backup. Keep the original storage and backup files until you have verified the new database.
@@ -11,17 +11,20 @@ Stop writers and verify that their processes have exited before taking an offlin
 
 ## Back up and restore local OLTP
 
-Use the checkout's `oltp` build. Supply the original database selector and data directory, and set `NABEDRA_TOKEN` in the environment.
+[Install the OLTP preview](/guides/installation#install-a-preview-server) from
+the source archive and run these commands from the same working directory.
+Supply the original database selector and data directory, and set
+`NABEDRA_TOKEN` in the environment.
 
 ```bash
-nabedra-db database backup --data-dir ./nabedra-local-data --database local \
+./.nabedra-oltp/bin/nabedra-db database backup --data-dir ./nabedra-local-data --database local \
   --output ./local-full.backup --cold-start
 ```
 
 To write a subsequent archive, supply `--previous PATH` with the prior archive. Retain the full base and all required incremental archives. Restore into a fresh destination directory path.
 
 ```bash
-nabedra-db database restore --input ./local-full.backup \
+./.nabedra-oltp/bin/nabedra-db database restore --input ./local-full.backup \
   --archive ./local-incremental.backup --data-dir ./restored-data --database local
 ```
 
@@ -29,12 +32,15 @@ Omit `--archive` for a single full backup. Repeat it for additional chain files 
 
 ## Move OLAP tables to OLTP
 
-Keep separately built binaries for OLAP and OLTP. With the OLAP server stopped, use its configured storage to export.
+[Install both preview servers](/guides/installation#install-a-preview-server)
+from the same source archive. Run both commands from the directory where you
+installed them. Stop the OLAP server before exporting. Set `NABEDRA_TOKEN` to
+the bearer token for the destination OLTP database before importing.
 
 ```bash
-/path/to/olap/nabedra-db database export --config ./olap-config.json \
+./.nabedra-olap/bin/nabedra-db database export --config ./olap-config.json \
   --output ./olap-export.nabedra --confirm-writers-stopped
-/path/to/oltp/nabedra-db database import --input ./olap-export.nabedra \
+./.nabedra-oltp/bin/nabedra-db database import --input ./olap-export.nabedra \
   --data-dir ./imported-data --database local
 ```
 

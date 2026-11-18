@@ -8,17 +8,20 @@ the `analytics` subscription. Set up a fresh [local broker fixture](/events/brok
 with that topic and subscription, and export `NABEDRA_EVENTS_PUBLISH_TOKEN` and
 `NABEDRA_EVENTS_READ_TOKEN` as shown in the broker guide.
 
-In the same shell, run these commands from the root of the documented source
-checkout using Python 3.11 or newer. Use your Python executable in place of
-`python3.11` if you have a newer version. Install from source to get `nabedra.events`.
+## Install the Events client
+
+The `nabedra.events` module is available in the source preview. If you followed
+the broker guide, run the install in the same shell. If you already have a broker,
+[download the source archive](/guides/installation#download-the-source-archive)
+in your current shell so `$nabedra_source` points to the extracted files.
+Use Python 3.11 or newer and substitute your Python executable if needed.
 
 ```sh
-python3.11 -m venv .venv
-.venv/bin/python -m pip install -e ./orm/python
-.venv/bin/python
+python3.11 -m venv .venv-events
+.venv-events/bin/python -m pip install "$nabedra_source/orm/python"
 ```
 
-Run both Python blocks in this session. They use `allow_insecure=True` for the
+Start `.venv-events/bin/python` and run both Python blocks. They use `allow_insecure=True` for the
 loopback HTTP fixture. For a remote broker, use an HTTPS URL and omit that
 option. The client verifies HTTPS using system trust. Pass `ca_file` to add a
 private CA.

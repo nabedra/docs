@@ -1,83 +1,110 @@
 ---
 title: "Installation"
-description: "Choose published packages or build the OLAP server, OLTP server, and Python client from source."
+description: "Install the latest Python client and OLAP server, or download the source for preview features."
 ---
 
-## Package and checkout support
-
-| Component | Published package covered here | Build or install from the source checkout for |
-| --- | --- | --- |
-| Rust server | `nabedra-database` 0.1.1 on crates.io, installed as `nabedra-db` | Engine choice, local OLTP, newer OLAP streaming, and offline data interchange |
-| Python | `nabedra` 0.1.0 on PyPI, imported as `nabedra` | The renamed server launcher, current streaming APIs, and Events |
-| Events broker | Build the standalone `nabedra-events` crate or image | Broker, fixture generator, and AWS Terraform |
-
-The source checkout still declares those Rust and Python version numbers. Use the documented commit or a newer verified revision, and check `nabedra-db --version` to confirm the engine. The published native release predates engine-specific builds.
+Install the Python client from PyPI and the OLAP server from crates.io. If you already have a running server, install the client and [connect from Python](/python/connect).
 
 ## Install the Python package
 
-<CodeGroup>
+Use Python 3.11 or newer. Run these commands from your project directory, substituting your Python executable if needed.
 
-```bash PyPI
+```bash
 python3.11 -m venv .venv
-.venv/bin/python -m pip install 'nabedra==0.1.0'
+.venv/bin/python -m pip install --upgrade nabedra
+.venv/bin/python -m pip show nabedra
 ```
 
-```bash Local checkout
-python3.11 -m venv .venv
-.venv/bin/python -m pip install -e ./orm/python
-```
-
-</CodeGroup>
-
-The core package has no third-party runtime dependencies. `database` is a dependency-free extra. With the source checkout, use `./orm/python[arrow]` for PyArrow, `./orm/python[gateway]` for HTTPX, `./orm/python[aws]` for Boto3, or `./orm/python[eks-replacement]` for Boto3 and cryptography. Quote the argument in shells that expand brackets.
+The core package uses the Python standard library. For optional integrations, install `'nabedra[gateway]'` for HTTPX or `'nabedra[aws]'` for Boto3. The `database` extra adds no dependencies. [PyPI package](https://pypi.org/project/nabedra/)
 
 ## Install the native server
 
-Use Rust 1.94.1 or newer with Cargo. Choose one build per binary. Save each binary under a separate path before switching build features in the same target directory.
+Use Rust 1.94.1 or newer with Cargo and a C compiler and linker. On Debian, install `build-essential`. On macOS, install the Xcode command line tools. Run the same command to upgrade an existing Cargo installation.
 
-<CodeGroup>
-
-```bash Published OLAP
-cargo install nabedra-database --version 0.1.1 --locked
+```bash
+cargo install nabedra-database --locked
 nabedra-db --version
 ```
 
-```bash Checkout OLAP with S3
-cargo build --locked --release --manifest-path server/Cargo.toml
-server/target/release/nabedra-db --version
+Cargo installs `nabedra-db`, typically in `~/.cargo/bin`. Add the Cargo bin directory to your `PATH` if the shell cannot find the executable. The default build uses OLAP with S3. Follow the [quickstart](/guides/quickstart) to start it. [Crates.io package](https://crates.io/crates/nabedra-database)
+
+## Package and checkout support
+
+| Component | Published package | Features available from the source archive |
+| --- | --- | --- |
+| Native server | `nabedra-database` for OLAP with S3 | [Local OLTP](/server/oltp), [OLAP streaming](/python/streaming), and [offline data interchange](/operations/backup-and-migration#move-olap-tables-to-oltp) |
+| Python | `nabedra` for the ORM and gateway | Launcher support for `nabedra-db`, [streaming and Arrow](/python/streaming), the [Events client](/events/python-client), and [OLTP deployment adapters](/operations/oltp-deployment#provider-integrations) |
+| Events broker | Unpublished | [Broker and Docker fixture](/events/broker) and [AWS Terraform configuration](/events/aws) |
+
+For a server installed with Cargo, run `nabedra-db serve` directly. The current PyPI launcher checks for the former executable name, `nabedra-database-server`. For `nabedra database serve`, [install the CLI and server together](#install-the-cli-and-server-together).
+
+## Download the source archive
+
+For a feature that still needs source, use `curl` and `tar` to download and extract the latest `main` archive. Keep using the same shell so `$nabedra_source` points to the extracted files.
+
+```bash
+nabedra_download="$(mktemp -d)"
+nabedra_source="$nabedra_download/source"
+mkdir "$nabedra_source"
+curl -fLsS https://github.com/zPy52/nabedra-database/archive/refs/heads/main.tar.gz \
+  -o "$nabedra_download/nabedra-database.tar.gz" &&
+  tar -xzf "$nabedra_download/nabedra-database.tar.gz" \
+    --strip-components=1 -C "$nabedra_source"
 ```
 
-```bash Checkout OLTP
-cargo build --locked --release --manifest-path server/Cargo.toml \
-  --no-default-features --features oltp
-server/target/release/nabedra-db --version
+The archive follows development on `main`. Use the same download for components you plan to run together.
+
+## Install a preview server
+
+Start with the [native server build prerequisites](#install-the-native-server). For OLTP, also install a C++ compiler, CMake, and libclang for RocksDB. On Debian, install `build-essential cmake clang libclang-dev`. On macOS, make CMake and libclang available to the compiler and bindgen.
+
+From your working directory, use the [extracted source archive](#download-the-source-archive). Choose one engine. Each command uses a separate installation directory so both binaries can coexist.
+
+<CodeGroup>
+
+```bash OLTP
+cargo install --locked --path "$nabedra_source/server" \
+  --no-default-features --features oltp --root "$PWD/.nabedra-oltp"
+./.nabedra-oltp/bin/nabedra-db --version
+```
+
+```bash OLAP with S3
+cargo install --locked --path "$nabedra_source/server" --root "$PWD/.nabedra-olap"
+./.nabedra-olap/bin/nabedra-db --version
 ```
 
 </CodeGroup>
 
-The OLTP build needs a C++ compiler, CMake, and libclang for RocksDB. On Debian, install `build-essential cmake clang libclang-dev`. On macOS, install the Xcode command line tools and make CMake and libclang available to the compiler and bindgen.
+Check that the version output includes the engine you selected. For OLTP, follow [Run local OLTP](/server/oltp). Use the OLAP archive build for [streaming](/python/streaming) and [offline export](/operations/backup-and-migration#move-olap-tables-to-oltp).
 
-| Features | Use case |
-| --- | --- |
-| `olap,s3` | Default build with S3 support |
-| `olap` | OLAP without AWS dependencies, including HTTP object-store test fixtures |
-| `oltp` | RocksDB OLTP without AWS dependencies |
-| `oltp-backup-s3` | OLTP with the optional S3 backup repository |
-
-Builds with both engines or neither engine are rejected. The `--all-features` Cargo switch selects both engines. From the checkout, run `python3.11 scripts/check_engine_features.py --dependencies-only` to inspect the dependency graph for each supported selection.
+The default source build selects `olap,s3`. Use `--no-default-features --features olap` for OLAP without AWS dependencies or `--no-default-features --features oltp-backup-s3` for OLTP with optional S3 backups. Cargo builds require exactly one engine.
 
 ## Install the CLI and server together
 
-Run the repository installer on Linux or macOS from the checkout root.
+Use Python 3.11 or newer and the [native server build prerequisites](#install-the-native-server) on Linux or macOS. [Download the source archive](#download-the-source-archive), then run these commands from your project directory with a new installation prefix.
 
 ```bash
-python3.11 scripts/install_nabedra.py --prefix .nabedra
-.nabedra/bin/nabedra --version --json
+python3.11 "$nabedra_source/scripts/install_nabedra.py" --prefix "$PWD/.nabedra"
+./.nabedra/bin/nabedra --version --json
 source .nabedra/bin/activate
 ```
 
-The installer builds a locked release binary, checks its engine, and installs it with the matching Python CLI. It honors `CARGO_TARGET_DIR` and requires a fresh installation prefix. Use `--engine oltp` with a separate prefix for OLTP, and `--with-s3` to select `oltp-backup-s3` for that installation. The default is OLAP with S3. At runtime the Python launcher uses `NABEDRA_SERVER_BINARY`, the environment-local executable, or the executable on `PATH`, in that order. An invalid explicit override fails immediately.
+The installer defaults to OLAP with S3. It honors `CARGO_TARGET_DIR`. For OLTP, install the [OLTP build prerequisites](#install-a-preview-server), use `--engine oltp` with a separate prefix, and add `--with-s3` if you need S3 backups. When set, `NABEDRA_SERVER_BINARY` selects the executable. Otherwise the launcher checks its Python environment and then `PATH`. Use [cluster setup](/server/clusters) to configure a supervised OLAP server.
 
-To build containers, use `docker build --build-arg NABEDRA_ENGINE=olap -t nabedra:olap .` or `docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp .`. The default entrypoint is the Python CLI for OLAP and the native CLI for OLTP. `NABEDRA_S3=auto` chooses the default S3 support for each engine. Use `true` or `false` as explicit build arguments to override it.
+## Build a container image
 
-[Installer source](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/scripts/install_nabedra.py) · [Dockerfile](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/Dockerfile)
+Use the [extracted archive](#download-the-source-archive) as the Docker build context.
+
+<CodeGroup>
+
+```bash OLAP
+docker build --build-arg NABEDRA_ENGINE=olap -t nabedra:olap "$nabedra_source"
+```
+
+```bash OLTP
+docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp "$nabedra_source"
+```
+
+</CodeGroup>
+
+The OLAP image runs the Python CLI, and the OLTP image runs `nabedra-db`. Use `--build-arg NABEDRA_S3=true` or `false` to override the S3 default. [Dockerfile](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/Dockerfile)

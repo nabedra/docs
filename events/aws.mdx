@@ -26,24 +26,37 @@ flowchart LR
 
 ## Provision the brokers
 
+[Download the source archive](/guides/installation#download-the-source-archive)
+and copy the Terraform module at `$nabedra_source/server/events/deploy/aws`
+to a permanent project directory. Run Terraform 1.7.0 or newer there so it can
+retain local state after you remove the temporary archive directory.
+
 1. Supply an existing VPC, at least three private broker subnets, an ALB subnet
    in each broker zone, a VPC-associated private Route 53 zone, and a client
    hostname with a matching regional ACM certificate. The private hosts need
    network access to their regional S3 artifacts, Secrets Manager and SSM. Use
    SSM for operator sessions. The instance security group allows only the ALB
    to reach TCP 8080 and other brokers to reach TCP 8081.
-2. Supply an EC2 Nitro AMI compatible with the broker binary. The packaged image
-   builds on Debian 12. For a host install use a compatible Linux AMI with
-   cloud-init, systemd, AWS CLI v2, SSM Agent, Bash, jq, util-linux, XFS tools and
-   the C++ runtime. Publish the binary to an immutable private S3 artifact key
-   and record its SHA-256.
+2. Supply an EC2 Nitro AMI compatible with the broker binary. Use a Linux AMI
+   with cloud-init, systemd, AWS CLI v2, SSM Agent, Bash, jq, util-linux, XFS
+   tools and the C++ runtime. Build the binary from the same archive on a
+   compatible Linux builder with Rust 1.94.1 or newer, Cargo, `pkg-config`, and
+   the [RocksDB build prerequisites](/guides/installation#install-a-preview-server).
+
+   ```sh
+   cargo build --locked --release --manifest-path "$nabedra_source/server/events/Cargo.toml" \
+     --bin nabedra-events
+   ```
+
+   Publish `server/events/target/release/nabedra-events` from the extracted
+   archive to an immutable private S3 artifact key and record its SHA-256.
 3. Create one Secrets Manager secret per broker. Use the same cluster UUID,
    grant and session signing rings, peer CA trust and peer token throughout
    the cluster. Each broker gets its own private peer credential. Its server
    certificate must cover `broker-<id>.<peer-zone>` as a DNS SAN. Issue its
    outgoing client certificate under a trusted peer CA with client-auth usage.
-4. Copy [the input example](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/deploy/aws/terraform.tfvars.example) into a local tfvars file
-   and replace the sample settings. Mark `format_blank_volume=true` only for
+4. Copy the module's `terraform.tfvars.example` to `terraform.tfvars` and
+   replace the sample settings. Mark `format_blank_volume=true` only for
    intended blank disks. Give the lowest metadata voter the genesis flag in
    its secret for the first deployment. Keep that flag false everywhere else.
 5. Run `terraform init`, review `terraform plan`, and apply the reviewed plan.

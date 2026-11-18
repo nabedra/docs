@@ -3,21 +3,18 @@ title: "Quickstart"
 description: "Start an OLAP or OLTP database, then create and query a table with Python."
 ---
 
-Start a database, write two rows, and check that a Python query returns the expected row. Use OLTP with Docker for local disk storage, or OLAP with Rust and an S3 bucket. If you already have a running server, follow [Connect from Python](/python/connect).
+Start a database, write two rows, and query them from Python. Use Cargo to install the OLAP server for S3, or use Docker to build the experimental OLTP server for local disk storage. If you already have a running server, follow [Connect from Python](/python/connect).
 
-You need Git, curl, a shell such as Bash or Zsh, and Python 3.11 or newer. The commands use `python3.11`. Substitute your Python executable if you use a newer version.
+You need curl, a shell such as Bash or Zsh, and Python 3.11 or newer. Substitute your Python executable for `python3.11` if you use a newer version.
 
 <Steps>
-<Step title="Get the source and install the client">
+<Step title="Install the Python client">
 
-Get the documented revision and install its Python client. Run the remaining commands from this repository root. Replace the placeholder with a long, random token made of ASCII letters and digits. Keep it private.
+In a directory for this tutorial, install the latest client from PyPI. Replace the token placeholder with a long, random string of ASCII letters and digits. Keep it private.
 
 ```bash
-git clone https://github.com/zPy52/nabedra-database.git
-cd nabedra-database
-git switch --detach 1418bad88e1df1b8c868b88889a120e37059c1c0
 python3.11 -m venv .venv
-.venv/bin/python -m pip install -e ./orm/python
+.venv/bin/python -m pip install --upgrade nabedra
 export NABEDRA_TOKEN='<your-private-bearer-token>'
 ```
 
@@ -25,12 +22,28 @@ export NABEDRA_TOKEN='<your-private-bearer-token>'
 <Step title="Start the database">
 
 <Tabs>
-<Tab title="OLTP with Docker">
+<Tab title="OLAP with S3">
 
-Start Docker, then build the local OLTP image and give RocksDB a named volume. Docker publishes the container's HTTP port at `127.0.0.1:8000`. For a native build, see [Run local OLTP](/server/oltp).
+Use Rust 1.94.1 or newer with [Cargo](/guides/installation#install-the-native-server) and an existing S3 general purpose bucket. Your AWS identity needs `s3:ListBucket` on the bucket and `s3:GetObject` and `s3:PutObject` on objects under the generated prefix. See [S3 permissions](/server/configuration#s3-permissions).
 
 ```bash
-docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp .
+cargo install nabedra-database --locked
+export AWS_PROFILE='<configured-profile>'
+export AWS_REGION='<bucket-region>'
+export NABEDRA_S3_BUCKET='<existing-bucket>'
+export NABEDRA_S3_PREFIX="nabedra-quickstart/$(.venv/bin/python -c 'from uuid import uuid4; print(uuid4().hex)')/"
+nabedra-db serve --host 127.0.0.1 --port 8000
+```
+
+Omit `AWS_PROFILE` if you use environment credentials or a workload role.
+
+</Tab>
+<Tab title="OLTP with Docker">
+
+Start Docker and [download the source archive](/guides/installation#download-the-source-archive) in the same shell. Build the OLTP image from the extracted directory in `$nabedra_source` and give RocksDB a named volume. Docker publishes the server at `127.0.0.1:8000`. For a native build, see [Run local OLTP](/server/oltp).
+
+```bash
+docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp "$nabedra_source"
 docker volume create nabedra-quickstart
 docker run --rm --user 0 --entrypoint chown \
   --mount type=volume,source=nabedra-quickstart,target=/data \
@@ -45,30 +58,12 @@ docker run --rm --name nabedra-quickstart \
 If you already ran a server against this volume, wait for the previous container to exit and append `--cold-start` to the final command.
 
 </Tab>
-<Tab title="OLAP with S3">
-
-Install the published OLAP server with Rust 1.94.1 or newer and Cargo. See the [package and checkout support matrix](/guides/installation#package-and-checkout-support) for version differences.
-
-Use an existing S3 general purpose bucket. Your AWS identity needs `s3:ListBucket` on the bucket and `s3:GetObject` and `s3:PutObject` on objects under the generated prefix. See [S3 permissions](/server/configuration#s3-permissions).
-
-```bash
-cargo install nabedra-database --version 0.1.1 --locked
-export AWS_PROFILE='<configured-profile>'
-export AWS_REGION='<bucket-region>'
-export NABEDRA_S3_BUCKET='<existing-bucket>'
-export NABEDRA_S3_PREFIX="nabedra-quickstart/$(.venv/bin/python -c 'from uuid import uuid4; print(uuid4().hex)')/"
-nabedra-db serve --host 127.0.0.1 --port 8000
-```
-
-Omit `AWS_PROFILE` if you use environment credentials or a workload role.
-
-</Tab>
 </Tabs>
 
 </Step>
 <Step title="Check readiness">
 
-Keep the server running in the first terminal. In a second terminal, change to the checkout root and export the same `NABEDRA_TOKEN`. Wait for the server's readiness probe to return HTTP 200.
+Keep the server running in the first terminal. Open a second terminal in the tutorial directory and export the same `NABEDRA_TOKEN`. Wait for the server's readiness probe to return HTTP 200.
 
 ```bash
 curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
@@ -80,14 +75,14 @@ If the probe keeps failing, see [Troubleshooting](/operations/troubleshooting).
 </Step>
 <Step title="Create, insert, and query">
 
-Start `.venv/bin/python` and run the example. The default local OLTP database selector is `default`. For the S3 server, change `mode` to `"olap"` and omit `database`.
+Start `.venv/bin/python` and run the example. For OLTP, use `mode="oltp", database="default"` when you create the `Database` client.
 
 ```python
 from uuid import uuid4
 
 from nabedra import Database, col
 
-db = Database("http://127.0.0.1:8000", mode="oltp", database="default")
+db = Database("http://127.0.0.1:8000", mode="olap")
 tasks = db.create_table(
     f"tasks_{uuid4().hex}",
     {"id": str, "title": str, "priority": int},
@@ -110,7 +105,7 @@ The output shows the generated table name followed by `[{'id': 't1', 'title': 'W
 
 ## Check persistence after a restart
 
-Press Ctrl-C in the server terminal and wait for the process to exit. Rerun only the final server command for your engine with `--cold-start` appended. Keep the same Docker volume or S3 bucket and prefix. Once readiness returns HTTP 200, reopen the table in the existing Python session.
+Press Ctrl-C in the server terminal and wait for the process to exit. Rerun only the final server command for your engine with `--cold-start` appended. Keep the same Docker volume or S3 bucket and prefix. Rerun the readiness probe in a third terminal, then reopen the table in the existing Python session once the probe returns HTTP 200.
 
 ```python
 reopened = db.table(tasks.name)

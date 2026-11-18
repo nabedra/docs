@@ -5,7 +5,7 @@ description: "Diagnose startup, authentication, admission, and recovery failures
 
 | Symptom | Check |
 | --- | --- |
-| A command or stream route is unavailable | Check `nabedra-db --version` and `nabedra-db serve --help`. Build the correct engine and install the matching Python checkout for [streaming](/python/streaming) or Events. |
+| A database command or stream route is unavailable | Run `--version` and `--help` with the path to the `nabedra-db` executable you used to start the server. Check [package support](/guides/installation#package-and-checkout-support) for your feature, including the [OLAP streaming preview](/python/streaming). |
 | Server fails to start or readiness fails | Inspect server logs and verify the configured catalog, mounted store or worker readiness. For S3, check the region, bucket, prefix, and [permissions](/server/configuration#s3-permissions). Readiness alone does not verify writes. |
 | `401 unauthorized` | Check the endpoint URL, bearer token and database selector. Data, cluster admin, gateway and Events tokens belong to different interfaces. |
 | TLS verification fails | Confirm that the hostname matches the certificate and supply the private CA with `ca_file` or `curl --cacert` when needed. |
@@ -19,4 +19,4 @@ description: "Diagnose startup, authentication, admission, and recovery failures
 | Events reports `lease_lost` | [Claim the subscription partition again](/events/python-client#claim-and-consume-a-subscription), then poll with the new lease to resume from the saved checkpoint. |
 | Events reports `checkpoint_expired` | Check the earliest available offset in the error and follow the [operator recovery procedure](/events/broker#recover-an-expired-checkpoint). |
 
-For an OLAP cluster, `nabedra database doctor --config PATH --json` checks local configuration and protected auth paths and probes a control object. Check `storage_read` in its report. The probe leaves write access unverified. Use `nabedra database cluster status --url URL --admin-token-file PATH` to inspect enrollment and worker capacity.
+For an OLAP cluster, `nabedra-db doctor --config PATH --json` checks local configuration and protected auth paths and probes a control object. Check `storage_read` in its report. The probe leaves write access unverified. Use the [matching Python CLI](/guides/installation#install-the-cli-and-server-together) to run `nabedra database cluster status --url URL --admin-token-file PATH` and inspect enrollment and worker capacity.

@@ -3,12 +3,21 @@ title: "Write an Events subscription to OLAP"
 description: "Configure a supervised ingestion loop that writes durable rows before acknowledging events."
 ---
 
-Create a destination using the normal OLAP API and record the returned UUID.
+The sink is available in the source preview. [Install the Events client](/events/python-client#install-the-events-client).
+Export `ORDER_EVENTS_READ_TOKEN` for the source subscription and
+`ORDER_EVENTS_OLAP_TOKEN` for the destination database. If you followed the
+broker guide, use its `NABEDRA_EVENTS_READ_TOKEN` value for `ORDER_EVENTS_READ_TOKEN`.
+In the same directory, start `.venv-events/bin/python` to create a table at
+your destination URL and record its UUID. For a direct OLAP endpoint, omit
+`database` from the Python call and the `olap` configuration below.
 
 ```python
+import os
+
 from nabedra import Database
 
-db = Database("https://olap.example", token=database_token, mode="olap", database="analytics")
+db = Database("https://olap.example", token=os.environ["ORDER_EVENTS_OLAP_TOKEN"],
+              mode="olap", database="analytics")
 table = db.create_table(
     "order_events",
     {"event_key": str, "partition": int, "offset": str, "published_at": str, "data": str},
@@ -17,8 +26,9 @@ table = db.create_table(
 print(table.id)
 ```
 
-Use that UUID in a sink configuration. The range includes `start` and excludes
-`stop`.
+Return to the shell and save the configuration as `orders-to-olap.json`
+beside `.venv-events`. Replace the example URLs and use the returned table UUID.
+The partition range includes `start` and excludes `stop`.
 
 ```json
 {
@@ -43,12 +53,12 @@ Use that UUID in a sink configuration. The range includes `start` and excludes
 ```
 
 ```sh
-python -m nabedra.events.sink --config orders-to-olap.json
+.venv-events/bin/python -m nabedra.events.sink --config orders-to-olap.json
 ```
 
 Set `olap.database` when the destination is an application gateway that
-requires a database selector. For a direct OLAP endpoint, omit it. The direct
-endpoint sets the storage scope from its connection configuration and token.
+requires a database selector. A direct endpoint sets the storage scope from
+its connection configuration and token.
 
 Each endpoint also accepts optional `ca_file`, `timeout` in seconds, and
 `allow_insecure` for local HTTP fixtures. The sink uses at most 32 workers

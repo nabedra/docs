@@ -3,7 +3,7 @@ title: "Run an OLAP cluster"
 description: "Supervise API and worker processes, configure fixed or shared storage, and validate enrollment."
 ---
 
-Use the [repository CLI](/guides/installation) with the OLAP build to run an API and its local workers under one supervisor.
+Install the [matching Python CLI and OLAP server](/guides/installation#install-the-cli-and-server-together), then activate the installed environment. The CLI supervises one API and its local workers.
 
 ## Initialize and supervise shared compute
 
@@ -52,14 +52,20 @@ Do not perform live cross-cluster transfers. Complete worker shutdown abandons o
 
 ## Local image and deployment
 
+Build the [OLAP container image](/guides/installation#build-a-container-image). Put `nabedra-database.json` and its protected auth file in your `deploy` directory. Set `auth_file` in the config to a path relative to the config file or an absolute path under `/etc/nabedra`. Keep secret files at mode `0600` and make them readable by the container's `nabedra` user.
+
+To reach the API from the host, set `bind` to `0.0.0.0:8000` and configure `tls.cert_file`, `tls.key_file`, and `tls.ca_file` with paths under `/etc/nabedra`. Use `https://127.0.0.1:8000` for `advertise_url` and the entry in `api_urls` when all workers run inside the container. Use certificates valid for `127.0.0.1` and give clients the CA certificate.
+
+Export AWS credentials in your shell. Include `AWS_SESSION_TOKEN` for temporary credentials. From the directory containing `deploy`, pass the exported values to the container.
+
 ```sh
-docker build -t nabedra-database:local .
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   --mount type=bind,src="$PWD/deploy",dst=/etc/nabedra,readonly \
-  nabedra-database:local database serve --config /etc/nabedra/nabedra-database.json
+  nabedra:olap database serve --config /etc/nabedra/nabedra-database.json
 ```
 
-Put the config and protected secret files under the mounted directory with container-readable paths. Configure a workload role for control storage, verified TLS for external API/worker links, and an explicit reachable bind/advertise address. Listeners default to loopback. Separate workers use `database worker --bootstrap /run/secrets/worker.json`. No daemonization, cloud provisioning or registry upload occurs automatically.
+For deployment, use a workload role for control storage, verified TLS for external API and worker links, and an advertise address reachable by separate workers. Separate workers use `database worker --bootstrap /run/secrets/worker.json`. Run these processes under your service manager.
 
 The recorded CLI and gateway checkpoint passed fresh-prefix installation and 13 live-S3 assertions. The run covered worker enrollment, database isolation, replay, receipt authorization, signal drain and catalog migration. See the [execution ledger](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md) for commands, failure regressions and scope. Live STS rotation, IAM revocation, worker crash recovery and full scheduler/load acceptance remain separate.
 
@@ -69,16 +75,18 @@ A local process acceptance runner starts a real HTTP object store, a supervised
 API and two manually enrolled worker processes with synthetic credentials. It
 checks public data operations, TCP peer/self partition jobs, competing writes,
 exact replay after a lost response and API restart, and process shutdown.
-Run from the repository root using the existing dependency cache:
+To run the fixture, [download the source archive](/guides/installation#download-the-source-archive)
+and use the same shell with Python 3.11 or newer, Rust 1.94.1 or newer with Cargo,
+and loopback TCP. Substitute your Python executable if needed.
 
 ```sh
+cd "$nabedra_source"
 CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
   cargo build --manifest-path server/Cargo.toml --locked --no-default-features --features olap --bin nabedra-db
 python3.11 scripts/acceptance_nodes.py --binary server/target/debug/nabedra-db
 ```
 
-The runner needs Python 3.11+, its standard library and loopback TCP. It creates and
-removes its own SQLite store and configuration. It reads no dotenv or cloud
+The runner prints `PASS` when the checks succeed. It creates and removes its own SQLite store and configuration. It reads no dotenv or cloud
 profiles. Its startup exchange demonstrates `nabedra-db api --config PATH`
 over the inherited `NABEDRA_SUPERVISOR_FD` socket and
 `nabedra-db worker --bootstrap PATH`. An API requires that supervisor

@@ -13,11 +13,14 @@ partition at a time and acknowledge the prefix they have processed.
 
 You need Docker with Compose v2, Python 3.11 or newer, and `curl` 7.76 or newer.
 Use your Python executable in place of `python3.11` if you have a newer version.
-Run the commands from the root of the [documented source checkout](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0).
+The broker is available as a source preview. In the same shell,
+[download the source archive](/guides/installation#download-the-source-archive)
+and build the Docker image from the extracted files.
 
 ```sh
 docker build --build-arg BUILD_JOBS=2 \
-  -t nabedra-events:local -f server/events/deploy/Dockerfile server/events
+  -t nabedra-events:local \
+  -f "$nabedra_source/server/events/deploy/Dockerfile" "$nabedra_source/server/events"
 ```
 
 Start three brokers with one volume each and a combined limit of two CPUs and
@@ -28,7 +31,7 @@ The topic below uses that value for its replication factor. Make sure ports
 ```sh
 broker_count=3
 fixture_dir="$(mktemp -d)/cluster"
-(umask 022; python3.11 server/events/deploy/fixture.py "$fixture_dir" \
+(umask 022; python3.11 "$nabedra_source/server/events/deploy/fixture.py" "$fixture_dir" \
   --brokers "$broker_count" --cpus 2 --memory-mib 1536)
 
 broker_compose() {

@@ -3,7 +3,13 @@ title: "Application gateway"
 description: "Authorize a database selector and attach trusted, per-request S3 credentials to shared compute."
 ---
 
-Install the checkout with the `gateway` extra in the application environment. Add `aws` to use Boto3 credential discovery.
+Use Python 3.11 or newer. In your application's Python environment, install the latest gateway from PyPI.
+
+```sh
+python -m pip install --upgrade 'nabedra[gateway]'
+```
+
+Use `'nabedra[gateway,aws]'` if you need Boto3 credential discovery.
 
 ## Authorize a connection
 

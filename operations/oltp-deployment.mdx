@@ -3,9 +3,11 @@ title: "OLTP deployment"
 description: "Understand single-replica, distributed process, and experimental provider configurations."
 ---
 
-Start with [standalone OLTP](/server/oltp) for local use. The distributed runtime and provider adapters in the source checkout are experimental. Use the [OLTP acceptance contract](/contributing/oltp-contract) and the recorded evidence for your topology before relying on failover or automatic storage growth.
+Start with [standalone OLTP](/server/oltp) for local use. The distributed runtime and provider adapters are experimental. Use the [OLTP acceptance contract](/contributing/oltp-contract) and the recorded evidence for your topology before relying on failover or automatic storage growth.
 
 ## Process roles
+
+[Install the OLTP preview](/guides/installation#install-a-preview-server). The commands below use `nabedra-db` from `.nabedra-oltp/bin`. Add that directory to `PATH` or use the executable's full path.
 
 | Role | Native entry point | Responsibilities |
 | --- | --- | --- |
@@ -30,7 +32,14 @@ Keep each process's protected auth and TLS material readable only by its intende
 
 ## Provider integrations
 
-The Python `nabedra.deployment` package includes Docker, EC2 and EKS adapters, EBS mount observation, a growth controller, and optional EKS replacement verification. Install the checkout with `[aws]` or `[eks-replacement]` in an operator environment when that path requires them.
+The source preview includes `nabedra.deployment` with Docker, EC2 and EKS adapters, EBS mount observation, a growth controller, and optional EKS replacement verification. Install it from the same [source archive](/guides/installation#download-the-source-archive) you used to build the server. For AWS integrations, run these commands in your Python 3.11 or newer operator environment.
+
+```sh
+python -m pip install "$nabedra_source/orm/python[aws]"
+python -c 'import nabedra.deployment'
+```
+
+Use `[eks-replacement]` for EKS replacement verification or omit the extra for Docker-only use.
 
 Provider observations report instances, Pods and volumes. The database decides which pools count as mounted capacity, which workers may vote, and when removal is authorized. The automatic growth planner folds published inventory and uses idempotent claims for lifecycle commands. The `growth-plan` native command reads inventory and emits a plan without applying provider changes.
 

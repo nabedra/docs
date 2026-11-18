@@ -5,6 +5,8 @@ description: "Run the database, query it from Python, and publish and consume du
 
 Nabedra Database is a Rust server with an HTTP API and a synchronous Python ORM. Its OLAP build stores immutable Parquet snapshots, while its experimental OLTP build stores indexed rows on a local RocksDB volume. Nabedra Events is a separate broker for partitioned event logs and subscription checkpoints.
 
+Follow [Installation](/guides/installation) to get the latest published packages or download the source archive for preview features.
+
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/guides/quickstart">
     Start a database and write your first rows from Python.
@@ -30,5 +32,5 @@ Nabedra Database is a Rust server with an HTTP API and a synchronous Python ORM.
 Each server binary has one engine. The same Python table and query methods work with both. To move a database between them, use the [offline export and import commands](/operations/backup-and-migration).
 
 <Note>
-This site documents the source checkout at [`1418bad`](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0). Follow the [installation matrix](/guides/installation) when choosing between published packages and checkout-only features.
+This site documents the source at [`1418bad`](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0).
 </Note>

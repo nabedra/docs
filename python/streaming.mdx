@@ -3,11 +3,23 @@ title: "Stream OLAP query batches"
 description: "Stream rows or Arrow batches from a pinned snapshot and assign data shards to PyTorch ranks."
 ---
 
-<Info>Install the Python client from the source checkout for these streaming APIs. Use `[arrow]` for Arrow batches. See [installation](/guides/installation).</Info>
+## Install the streaming client
+
+These streaming APIs require the preview client and a streaming-capable OLAP server. [Download the source archive](/guides/installation#download-the-source-archive), then run these commands from your project directory in the same shell. Use Python 3.11 or newer, substituting your Python executable if needed. Supply the server's data bearer token.
+
+```sh
+python3.11 -m venv .venv-stream
+.venv-stream/bin/python -m pip install "$nabedra_source/orm/python"
+export NABEDRA_TOKEN='<same-token-configured-on-your-server>'
+```
+
+To run a standalone server, [install the OLAP preview server](/guides/installation#install-a-preview-server) from the same archive. Set its [environment variables](/server/configuration#environment-variables) and run `./.nabedra-olap/bin/nabedra-db serve`.
 
 ## Stream rows
 
 `Query.stream()` fetches batches in ascending primary-key order from a pinned OLAP snapshot. Each batch contains up to `batch_rows` matching rows. By default, the worker uses available RAM and compute to prepare the next batch while your application processes the current one.
+
+Run this example with `.venv-stream/bin/python`. Use your server URL and database selector, and an existing `training_examples` table with the columns shown below.
 
 ```python
 from nabedra import Database, col
@@ -22,7 +34,7 @@ query = (
 
 with query.stream(batch_rows=64) as batches:
     for rows in batches:
-        consume(rows)
+        print(rows)
 ```
 
 Use the context manager so an early exit closes the server lease. The iterator is single-use. The SDK retries lost responses and temporary worker failures with the same run ID and batch sequence. The connection timeout and a fixed attempt limit bound the retry window. It raises `StreamAbandonedError` when the worker run ends, `StreamExpiredError` when the lease expires, and `StreamUnsupportedError` when the server or the query lacks streaming support.
@@ -31,14 +43,13 @@ Use the context manager so an early exit closes the server lease. The iterator i
 
 ## PyTorch
 
-From the database checkout root, install the Arrow extra and your training dependencies in the active Python environment.
+To read Arrow batches in PyTorch, install the Arrow extra and the training dependencies in the same environment.
 
 ```sh
-python -m pip install -e './orm/python[arrow]'
-python -m pip install numpy torch
+.venv-stream/bin/python -m pip install --upgrade "$nabedra_source/orm/python[arrow]" numpy torch
 ```
 
-This adapter yields one pair of CPU tensors per server batch. The two feature columns are numeric and the label column is an `int64` class index.
+Add these examples to your training script and supply your own `train_step` and `num_epochs`. The adapter yields one pair of CPU tensors per server batch. The two feature columns are numeric and the label column is an `int64` class index.
 
 ```python
 import numpy as np
