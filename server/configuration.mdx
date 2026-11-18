@@ -19,11 +19,26 @@ These settings configure the standalone OLAP server with S3. A [supervised OLAP 
 | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | Optional standard AWS shared-file location overrides. |
 
 The S3 backend uses the AWS SDK's standard credential and region chains, including
-shared profiles and roles. AWS credentials stay on the server; clients need only
-the API URL and bearer token. The configured identity needs access to read and
-conditionally write objects beneath the database prefix.
+shared profiles and roles. AWS credentials stay on the server. Clients need the
+API URL and bearer token.
 
 Supply these values through the process environment or your service manager. The server does not load dotenv files.
+
+### S3 permissions
+
+Grant the server's AWS identity `s3:GetObject` and `s3:PutObject` on objects
+under `NABEDRA_S3_PREFIX`. S3 policies must allow conditional writes with
+`If-None-Match` for new objects and `If-Match` for catalog updates.
+[Amazon S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)
+
+To initialize a prefix without `catalog.json`, grant `s3:ListBucket` on the
+bucket. With that permission, S3 returns HTTP 404 for the missing object and
+Nabedra creates the catalog. If S3 returns HTTP 403 instead, startup fails.
+[Amazon S3 GetObject permissions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)
+
+If the bucket uses SSE-KMS by default, the server also needs
+`kms:GenerateDataKey` and `kms:Decrypt` on the key.
+[Amazon S3 SSE-KMS permissions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html)
 
 ## Standalone OLAP flags
 

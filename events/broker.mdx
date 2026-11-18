@@ -9,94 +9,157 @@ the OLAP and OLTP engines. Producers choose a partition and keep the event
 UUID, partition and payload for retries. Consumers claim one subscription
 partition at a time and acknowledge the prefix they have processed.
 
-See the [Python client and OLAP sink](/events/python-client) and
-[design and acceptance plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/events.md).
-
 ## Run in Docker
 
-From the repository root, build the standalone broker.
+You need Docker with Compose v2, Python 3.11 or newer, and `curl` 7.76 or newer.
+Use your Python executable in place of `python3.11` if you have a newer version.
+Run the commands from the root of the [documented source checkout](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0).
 
 ```sh
 docker build --build-arg BUILD_JOBS=2 \
   -t nabedra-events:local -f server/events/deploy/Dockerfile server/events
 ```
 
-Generate a fixture with three brokers, one volume per broker, and an aggregate
-limit of two CPUs and 1536 MiB of memory. Pick lower totals if Docker is hosting
-another test. For a single broker use `--brokers 1`. To test RF1 promotion,
-start with three or more brokers and `--metadata-voters 1`.
+Start three brokers with one volume each and a combined limit of two CPUs and
+1536 MiB of memory. For a single broker, change the first line to `broker_count=1`.
+The topic below uses that value for its replication factor. Make sure ports
+18080 through 18082 are free for three brokers, or port 18080 for one broker.
 
 ```sh
-fixture_dir=$(mktemp -d)/cluster
-python3 server/events/deploy/fixture.py "$fixture_dir" \
-  --brokers 3 --cpus 2 --memory-mib 1536
-docker compose -f "$fixture_dir/compose.json" up -d
-curl --fail --retry 10 --retry-connrefused http://127.0.0.1:18080/readyz
+broker_count=3
+fixture_dir="$(mktemp -d)/cluster"
+(umask 022; python3.11 server/events/deploy/fixture.py "$fixture_dir" \
+  --brokers "$broker_count" --cpus 2 --memory-mib 1536)
+
+broker_compose() {
+  docker compose -f "$fixture_dir/compose.json" "$@"
+}
+
+broker_compose up -d
+base=http://127.0.0.1:18080
+curl --fail --silent --show-error --retry 10 --retry-connrefused \
+  --write-out '%{http_code}\n' "$base/readyz"
 ```
 
-The first broker listens on loopback port 18080. The next two use 18081 and
-18082. Peer listeners are on the fixture network. The fixture uses local HTTP
-and generated credentials stored in its private directory. To restart against
-the same disks, use `docker compose stop` followed by `up -d` with the same
-Compose file. A regular `down` also preserves its named volumes.
+Continue after `up -d` succeeds and the probe prints `200`. Broker 1 listens on loopback port 18080.
+The other brokers, if present, use 18081 and 18082. The fixture uses local HTTP
+and keeps its signing configurations in the private fixture directory. To
+restart on the same disks, run `broker_compose stop` and `broker_compose up -d`.
+A regular `broker_compose down` also preserves the named volumes.
 
 ## Issue grants and create topics
 
-Issue a grant by supplying a broker config and a JSON grant to
-`nabedra-events issue-grant --config FILE --grant FILE`. Use short expirations
-in epoch milliseconds. A publish grant has
-`"scope":{"operation":"publish","topic":"orders"}`. A read grant includes
-`"operation":"read","topic":"orders","subscription":"analytics"` in its scope.
-Give a sink its own read grant and database credentials.
-
-For the Docker fixture, create an operator grant valid for one hour.
+In the same terminal, prepare an operator grant, a publish grant for `orders`,
+and a read grant for its `analytics` subscription. Each grant expires after
+one hour. Keep the operator token in the shell for the setup commands.
 
 ```sh
-python3 - "$fixture_dir/operator.json" <<'PY'
+python3.11 - "$fixture_dir" <<'PY'
 import json
+from pathlib import Path
 import sys
 import time
 
-with open(sys.argv[1], "w", encoding="utf-8") as output:
-    json.dump({
+directory = Path(sys.argv[1])
+expires_at_ms = int(time.time() * 1000) + 3_600_000
+scopes = {
+    "operator": {"operation": "operator"},
+    "publish": {"operation": "publish", "topic": "orders"},
+    "read": {"operation": "read", "topic": "orders", "subscription": "analytics"},
+}
+for subject, scope in scopes.items():
+    grant = {
         "tenant": "local",
-        "subject": "operator",
-        "scope": {"operation": "operator"},
-        "expires_at_ms": int(time.time() * 1000) + 3_600_000,
-    }, output)
+        "subject": subject,
+        "scope": scope,
+        "expires_at_ms": expires_at_ms,
+    }
+    (directory / f"{subject}-grant.json").write_text(json.dumps(grant), encoding="utf-8")
 PY
 
-operator_token=$(docker compose -f "$fixture_dir/compose.json" run --rm --no-deps \
-  -v "$fixture_dir/operator.json:/etc/nabedra-events/grant.json:ro" broker-1 \
-  issue-grant --config /etc/nabedra-events/broker.json --grant /etc/nabedra-events/grant.json)
+issue_grant() {
+  broker_compose exec -T broker-1 nabedra-events issue-grant \
+    --config /etc/nabedra-events/broker.json --grant /dev/stdin \
+    < "$fixture_dir/$1-grant.json"
+}
+
+operator_token=$(issue_grant operator)
 
 admin() {
   printf 'Authorization: Bearer %s\n' "$operator_token" |
-    curl --silent --show-error --fail-with-body -H @- "$@"
+    curl --silent --show-error --fail-with-body --write-out '\n' -H @- "$@"
 }
 ```
 
-Choose a UUID before submitting an operation and save the body for retries.
+Create `orders` with eight partitions and one day of retention. Save the ID
+and body of each operation. If submission has an uncertain outcome, check the
+receipt or repeat the POST with the same body.
 
 ```sh
-base=http://127.0.0.1:18080
-operation_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
+create_topic_id=$(python3.11 -c 'from uuid import uuid4; print(uuid4())')
+topic_request=$(cat <<JSON
+{"operation_id":"$create_topic_id","action":{
+  "type":"create_topic","topic":"orders","partitions":8,
+  "replication_factor":$broker_count,"retention_seconds":86400
+}}
+JSON
+)
 admin "$base/v1/admin/operations" -H 'Content-Type: application/json' \
-  --data "{\"operation_id\":\"$operation_id\",\"action\":{\"type\":\"create_topic\",\"topic\":\"orders\",\"partitions\":8,\"replication_factor\":3,\"retention_seconds\":86400}}"
-admin "$base/v1/admin/operations/$operation_id"
+  --data "$topic_request"
+admin "$base/v1/admin/operations/$create_topic_id"
 ```
 
-Wait for the receipt to show `"state":"completed"` before the next topology
-change. Use replication factor 1 on a single broker. A cluster can host up to
-4,095 data partitions and one metadata group. A request that would exceed the
-partition limit returns `partition_limit` before recording a pending operation.
-To add a subscription,
-submit `{"type":"create_subscription","topic":"orders","subscription":"analytics","start":"earliest"}`
-as the action in a new operation. `latest` starts at the current tail on each
-partition. To replay, create another subscription. A checkpoint that falls
-behind retention returns `checkpoint_expired` and the earliest available
-offset. Verify which data was removed before using `reset_subscription` with
-the topic, partition and subscription to resume at the retention floor.
+Repeat the final `admin` command if the receipt says `"state":"pending"`.
+Once it says `"state":"completed"`, create `analytics` at the earliest
+retained event on each partition.
+
+```sh
+create_subscription_id=$(python3.11 -c 'from uuid import uuid4; print(uuid4())')
+subscription_request=$(cat <<JSON
+{"operation_id":"$create_subscription_id","action":{
+  "type":"create_subscription","topic":"orders",
+  "subscription":"analytics","start":"earliest"
+}}
+JSON
+)
+admin "$base/v1/admin/operations" -H 'Content-Type: application/json' \
+  --data "$subscription_request"
+admin "$base/v1/admin/operations/$create_subscription_id"
+```
+
+Repeat the final `admin` command while the subscription receipt says
+`"state":"pending"`. When it says `"state":"completed"`, issue the client tokens
+and export them.
+
+```sh
+NABEDRA_EVENTS_PUBLISH_TOKEN=$(issue_grant publish)
+NABEDRA_EVENTS_READ_TOKEN=$(issue_grant read)
+export NABEDRA_EVENTS_PUBLISH_TOKEN NABEDRA_EVENTS_READ_TOKEN
+```
+
+Continue with the [Python example](/events/python-client) in this terminal.
+
+Use `latest` to start a subscription at the current tail on each partition.
+To replay retained events, create another subscription.
+
+For another deployment, run `nabedra-events issue-grant --config FILE --grant FILE`
+with its broker configuration and the appropriate grant document. Give an
+[OLAP sink](/events/olap-sink) a dedicated read grant and database credentials.
+
+### Recover an expired checkpoint
+
+If a checkpoint falls behind retention, polling returns `checkpoint_expired`
+and the earliest available offset. Check which data was removed. To resume
+at the retention floor, submit an operator action with the affected topic,
+partition, and subscription.
+
+```json
+{"type":"reset_subscription","topic":"orders","partition":0,"subscription":"analytics"}
+```
+
+Use a new operation ID and include this JSON as the `action` in the request
+body. Wait for the operation receipt to report `"state":"completed"`, then
+claim a new lease and poll.
 
 ## Inspect and change placement
 
@@ -119,9 +182,16 @@ checkpoint positions.
 
 For RF1 promotion, bring up three eligible brokers in distinct zones. Move the
 metadata group to all three voters, promote each topic, then check replica
-progress before decommissioning any source. For a drain, retain the old broker
+progress before decommissioning any source. To exercise promotion in Docker,
+generate a fixture with three brokers and `--metadata-voters 1`, then create
+the topic with `replication_factor` set to 1. For a drain, retain the old broker
 until the operation completes and committed membership excludes it from
 every group. Keep the prior partition ID for retries after adding partitions.
 
-See the [AWS runbook](/events/aws) for production provisioning,
-credentials, backup, disk replacement, recovery and monitoring.
+A cluster can host up to 4,095 data partitions and one metadata group. An
+operation that would exceed that limit returns `partition_limit` before
+recording a pending operation.
+
+See the [AWS runbook](/events/aws) for provisioning, credentials, backups,
+disk replacement, recovery and monitoring, or the [Events design and acceptance plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/events.md)
+for details about placement and replication.

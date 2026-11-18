@@ -9,25 +9,44 @@ All client errors below derive from `NabedraError`, exported by `nabedra`.
 | --- | --- |
 | `ValidationError` | Invalid local input or server validation failure. |
 | `AuthenticationError` | Credentials are missing locally or the server rejected authentication. |
-| `NotFoundError` | Table does not exist, including a stale table ID. |
-| `ConflictError` | Duplicate table/key or a server commit conflict. |
+| `NotFoundError` | A table or receipt is unavailable. Check for a stale table ID or an expired read result. |
+| `ConflictError` | Duplicate table name or key, request identity conflict, or commit conflict. |
 | `LimitExceededError` | Local input or a valid server error exceeds a limit. |
 | `OverloadedError` | Server cannot accept more work. |
 | `StorageError` | Server storage failed with outcome `not_applied`. |
-| `TransportError` | Read-side network failure. |
+| `TransportError` | Read-side network failure or receipt wait timeout. |
 | `ProtocolError` | Malformed or invalid read response, including an oversized response. |
-| `UnknownOutcomeError` | Mutation may have committed despite an unknown server outcome or a lost/invalid response. |
+| `UnknownOutcomeError` | The server reported outcome `unknown`, or the client lost or could not validate a write response. A write may have committed. |
 | `NabedraError` | Other valid server error. |
 
-Errors expose `code`, `request_id`, `status_code` and `outcome`. Local errors may
-have no request ID or HTTP status. Server errors preserve their diagnostics;
-`outcome` can be `"not_applied"` or `"unknown"`, while some local/read failures
-have `None`. A request UUID identifies one logical queued operation. Submitting the same UUID
-and exact body attaches to that request; a different body conflicts. The client
-does not automatically resubmit operations.
+Errors expose `code`, `request_id`, `status_code`, and `outcome`. Local errors may
+have no request ID or HTTP status. The outcome describes the call that raised
+the error. `"not_applied"` means that call had no effect. For a failed receipt
+lookup, it gives no information about the original write. `"unknown"` means the
+client could not confirm the outcome. Some errors, including read transport
+failures, have `None`.
 
 ## Resolve an uncertain write
 
-After `UnknownOutcomeError`, keep the original identity. A request can still
-commit after its response disappears. Use its receipt or durable mutation
-decision to reconcile the outcome before submitting another logical mutation.
+If a write raises `UnknownOutcomeError`, save `error.request_id` and the intended
+change. The request may already have committed or may still be running. Each
+ordinary ORM method call generates a fresh request ID, so calling the method
+again creates another logical write.
+
+If you have the original run ID as well, check the request with
+`db.receipt(run_id, request_id)` using the same database credentials and
+selector. Keep polling while the receipt is active. `succeeded` confirms
+completion. If it is `failed` and `receipt.error["outcome"]` is `"not_applied"`,
+address the failure before retrying. For an abandoned or unavailable receipt,
+or a failed receipt with an unknown outcome, reconcile the write below.
+
+If you used `db.submit()` and lost its acceptance response, you can
+[resubmit the same body and request ID](/python/receipts#recovery-and-retention)
+when you can confirm the original worker run is still active.
+
+When you cannot recover the outcome from a receipt, compare the current data
+with the intended change before writing again. For example, after an uncertain
+insert, use `table.get(key)` to check whether the expected row is present.
+`None` means the row is absent at the time of the read, and the original insert
+may still commit. A match confirms the current row. If other clients write the
+same key, use application records to determine which write produced it.

@@ -3,48 +3,70 @@ title: "Request receipts"
 description: "Submit without waiting for completion, observe terminal results, and recover receipts by run and request ID."
 ---
 
-Existing table/query methods remain synchronous. They submit through the same
-worker queue as the receipt interface. Acceptance returns a queue identity and
-does not mean a mutation has committed.
+Use `Database.submit()` to queue an [operation](/reference/database-http#operation-payloads)
+and get a receipt without waiting for completion. The returned `queued` state
+confirms acceptance. Poll the receipt for the result. Ordinary table and query
+methods wait for completion.
+
+Follow the [quickstart](/guides/quickstart) to install the client and start a
+server. Run the example in that Python environment with `NABEDRA_TOKEN` set.
+Use the server's URL and include `database=` if it requires a database selector.
+The example lists tables without changing data.
 
 ```python
+from uuid import uuid4
+
 from nabedra import Database
 
-client = Database(url="http://127.0.0.1:8000", mode="olap")
-table = client.table("guide_users")  # Use an existing table name.
-receipt = client.submit("query.count", {
-    "table_id": table.id,
-    "query": {"select": None, "filter": None, "order_by": None, "limit": None},
-})
-identity = (receipt.run_id, receipt.request_id)
-print(*identity, receipt.state)
+client = Database(url="http://127.0.0.1:8000")
+request_id = str(uuid4())
+operation, payload = "table.list", {}
+print("Request ID:", request_id)
+receipt = client.submit(operation, payload, request_id=request_id)
+run_id = receipt.run_id
+print("Run ID:", run_id)
+print("Accepted:", receipt.state)
+
 terminal = receipt.wait(timeout=30)
 assert terminal.state == "succeeded", terminal.error
 print(terminal.result)
-
-# Reconnect through another API using the same database credentials.
-receipt = client.receipt(*identity)
 ```
+
+The example prints the two IDs, `Accepted: queued`, and a list of table
+descriptors. An empty database returns `[]`.
 
 ## Receipt fields and states
 
-`RequestReceipt` has `request_id`, `run_id`, `state`, `result`, `error`, and the
-`terminal` property. `poll()` returns a fresh receipt. `wait()` polls until a
-terminal state or its deadline. A wait timeout releases the client transport and
-does not cancel accepted work. To retry an uncertain submission, preserve the
-original UUID and operation payload and pass `request_id=` to `submit()`.
-
-Receipt states are `queued`, `running`, `committing`, `reconciling`, `succeeded`,
-`failed`, and `abandoned`. Query results expire at the configured retention
-interval and then return explicit `NotFoundError`. Durable mutation decisions
-remain reconcilable after result expiration or a run change.
+`RequestReceipt` exposes `request_id`, `run_id`, `state`, `result`, and `error`.
+Its `terminal` property is true for `succeeded`, `failed`, or `abandoned`.
+The other states are `queued`, `running`, `committing`, and `reconciling`.
+`poll()` returns a fresh receipt. `wait()` returns a terminal receipt even if
+the operation failed. Inspect `result` on success and `error` on failure. A
+wait timeout raises `TransportError` and stops client polling. You can resume
+polling the same receipt.
 
 ## Recovery and retention
 
-Every ready worker holds complete request records in RAM. An API restart or an
-individual worker failure can recover accepted work from another holder. A
-joining worker copies the queue before readiness. Stopping every worker abandons
-outstanding requests. An explicit `--cold-start` fences prior attempts and starts
-a new run without reconstructing pending requests from storage. Committed rows
-and mutation decisions remain durable. A one-worker deployment has one queue
-copy and cannot survive losing that process.
+Before sending a write that you may need to recover, save its request ID,
+operation name, and exact payload, including JSON field order. Save the run ID
+when you receive it. When you reconnect, use an API for the same database with
+the same credentials and selector.
+
+- **Run ID and request ID.** Poll with `client.receipt(run_id, request_id)`.
+- **Request ID only.** If the acceptance response was lost and the same worker
+  run is still active, repeat `client.submit(operation, payload, request_id=request_id)`
+  with the original body. This attaches to the existing request if the server
+  accepted it, or submits it for the first time if the original never arrived.
+  A changed body for an existing UUID raises `ConflictError`.
+  If you cannot confirm the run is still active,
+  [reconcile the write](/python/errors#resolve-an-uncertain-write) before submitting it again.
+
+Read results live in worker memory and can expire or hit the [retention byte
+limit](/server/worker-runtime#configuration-files). Polling for an expired
+result in the same run raises `NotFoundError`.
+Accepted work can survive an API restart or a worker loss while a complete
+queue copy survives. A cold start after every worker stops begins a new run and
+abandons outstanding work. Durable mutation decisions can still resolve old
+receipts. If an old receipt is `abandoned` or polling raises
+`UnknownOutcomeError`, [reconcile the write](/python/errors#resolve-an-uncertain-write)
+before submitting it again. See [queue recovery](/server/worker-runtime#admission-and-recovery).

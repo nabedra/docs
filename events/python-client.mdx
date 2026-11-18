@@ -3,72 +3,113 @@ title: "Publish and consume in Python"
 description: "Publish idempotent records, claim subscription leases, and acknowledge processed events."
 ---
 
-Install the Python client from the [source checkout](/guides/installation). The `nabedra.events` package connects to an Events broker with its own URL,
-bearer token and TLS trust settings. A producer publishes to a topic and
-partition. Each named subscription maintains its own checkpoint for that
-partition. An operator creates topics and subscriptions before use.
+Publish an event to partition 0 of `orders`, then read and acknowledge it on
+the `analytics` subscription. Set up a fresh [local broker fixture](/events/broker)
+with that topic and subscription, and export `NABEDRA_EVENTS_PUBLISH_TOKEN` and
+`NABEDRA_EVENTS_READ_TOKEN` as shown in the broker guide.
+
+In the same shell, run these commands from the root of the documented source
+checkout using Python 3.11 or newer. Use your Python executable in place of
+`python3.11` if you have a newer version. Install from source to get `nabedra.events`.
+
+```sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -e ./orm/python
+.venv/bin/python
+```
+
+Run both Python blocks in this session. They use `allow_insecure=True` for the
+loopback HTTP fixture. For a remote broker, use an HTTPS URL and omit that
+option. The client verifies HTTPS using system trust. Pass `ca_file` to add a
+private CA.
 
 ## Publish events
 
 ```python
+import os
 from uuid import uuid4
 
 from nabedra.events import Events
 
-producer = Events("https://events.example", token=publish_token)
-event_id = uuid4()
-event = producer.publish(
-    "orders", partition=7, event_id=event_id, data={"order_id": "A-42"},
+base_url = "http://127.0.0.1:18080"
+producer = Events(
+    base_url, token=os.environ["NABEDRA_EVENTS_PUBLISH_TOKEN"], allow_insecure=True,
 )
-assert event.event_id == event_id
+event_id = uuid4()
+data = {"order_id": "A-42"}
+published = producer.publish(
+    "orders", partition=0, event_id=event_id, data=data,
+)
+print(f"Published {published.data['order_id']} at offset {published.offset}")
 ```
 
-Save the partition, UUID and payload together before sending an event that
-needs retry. Within retention, identical retries return their original
-receipts. Changed data for the same UUID and partition conflicts.
-`publish_batch` accepts up to 100 `PublishRecord` objects or dictionaries with
-`event_id` and `data` fields. It returns receipts in input order from one atomic
-partition write. Data uses finite JSON values and supports up to 64 nested
-containers. The encoded request is limited to 64 KiB per record, including
-the UUID, and 1 MiB per batch, including the batch envelope. Batch receipts
-also have a 1 MiB limit.
-`client.partitions("orders")` yields partition IDs and fetches discovery pages
-as needed.
-
-An `EventsUnknownOutcomeError` means the write may have committed. For a
-publish, retry the same partition, UUID and data. Other `EventsError` instances
-include a code and may carry the HTTP status, `Retry-After` duration in seconds,
-or earliest available offset. If a claim still has an unknown outcome after
-the client's retry, the exception carries its `claim_id`. Supply
-`claim(claim_id=error.claim_id)` to continue recovering that claim.
+On a fresh fixture, the first publish prints `Published A-42 at offset 1`. Save the topic,
+partition, event UUID and data before sending an event you may need to retry.
+If publishing raises `EventsUnknownOutcomeError`, the write may have
+committed. While the original event would still be retained, retry the same
+publish call with those values. An identical retry returns the original receipt
+if the first call committed. Changing the data for a retained UUID in that
+partition results in a conflict. If retention may have elapsed, check your
+application's records before publishing again.
 
 ## Claim and consume a subscription
 
 ```python
-consumer = Events("https://events.example", token=read_token)
-subscription = consumer.subscription("orders", "fulfillment", partition=7)
+consumer = Events(
+    base_url, token=os.environ["NABEDRA_EVENTS_READ_TOKEN"], allow_insecure=True,
+)
+subscription = consumer.subscription("orders", "analytics", partition=0)
 with subscription.claim() as lease:
-    batch = lease.poll(limit=100)
-    for event in batch.events:
-        process_order(
-            event.data,
-            idempotency_key=(event.topic_id, event.partition, event.event_id),
-        )
-    if batch.events:
-        lease.ack(batch, through=batch.events[-1].offset)
+    batch = lease.poll(limit=1)
+    assert len(batch.events) == 1
+    received = batch.events[0]
+    assert received.event_id == event_id
+    assert received.data == data
+    print(f"Received {received.data['order_id']} at offset {received.offset}")
+    checkpoint = lease.ack(batch, through=received.offset)
+    assert checkpoint == published.offset
+    print(f"Checkpoint advanced to {checkpoint}")
 ```
 
-A claim reserves one subscription partition until its lease expires or is
-released. Call `lease.renew()` during long processing and use
-`lease.expires_at` to see the deadline. Acknowledging a processed prefix leaves
-the remainder available for redelivery. Event offsets and checkpoints are
-Python integers. The context manager releases the claim, and an identical
-ack can be retried during the same lease if the response is lost.
-`checkpoint_expired` requires an operator to choose a new checkpoint.
+Press Enter on a blank line to finish the `with` block in the Python prompt.
+On the first run, the block prints `Received A-42 at offset 1` and
+`Checkpoint advanced to 1`. Each subscription has its own checkpoint on each
+partition. As long as only this example uses the partition and subscription,
+you can rerun both blocks after a successful run. Each run publishes a new
+UUID, and polling starts after the last acknowledged offset.
+If you stopped after publishing, finish consuming that event before publishing
+another one.
 
-The client verifies HTTPS using system trust by default. `ca_file` adds a
-private CA. `allow_insecure=True` enables HTTP for local fixtures.
+## Use batches and handle retries
 
+`publish_batch` accepts `PublishRecord` objects or dictionaries with
+`event_id` and `data` fields. It writes one atomic batch to one partition and
+returns receipts in input order. `producer.partitions("orders")` yields the
+available partition IDs and fetches more pages as needed. The encoded batch
+receipt is limited to 1 MiB. See [Events limits](/reference/limits#events) for
+record, request, and page limits.
 
+A claim reserves one subscription partition. The context manager attempts to
+release it on exit. For longer processing, check `lease.expires_at` and call
+`lease.renew()` before the deadline. Call `lease.ack(batch, through=offset)`
+only after processing through that offset. It advances the checkpoint through
+the offset, inclusive, and leaves any later events available for redelivery.
+Offsets and checkpoints are Python integers. Retry an identical acknowledgment
+during the same lease if its response is lost.
 
-See the [HTTP reference](/reference/events-http) for route shapes and the [OLAP sink](/events/olap-sink) for a managed ingestion loop.
+If processing has side effects, use the event's topic UUID, partition and
+event UUID together as a deduplication key. An event can be delivered again
+if processing succeeds and the checkpoint fails to advance.
+
+An `EventsError` includes a code and may carry the HTTP status,
+`Retry-After` duration in seconds, or earliest available offset. If a claim
+raises `EventsUnknownOutcomeError`, repeat it with
+`subscription.claim(claim_id=error.claim_id)`. If the original request
+acquired a lease and it is still live, the broker returns that lease. For
+`checkpoint_expired`, follow the
+[operator recovery steps](/events/broker#recover-an-expired-checkpoint).
+
+To ingest retained events already acknowledged by this example, create a separate
+subscription with `start: "earliest"` and issue a read grant for it before
+starting the [OLAP sink](/events/olap-sink). For route shapes, see the [Events
+HTTP reference](/reference/events-http).
