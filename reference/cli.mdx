@@ -3,19 +3,33 @@ title: "Command-line reference"
 description: "Look up commands for nabedra, nabedra-db, and nabedra-events."
 ---
 
-The Python package installs `nabedra`. The Rust database crate installs `nabedra-db`. Run the specific subcommand with `--help` for options supported by your build.
+The Python and TypeScript packages each install a `nabedra` launcher. The native executable is `nabedra-db`. Run the specific subcommand with `--help` for options supported by your build.
 
 ## Python launcher and administration
 
 For a launcher that recognizes `nabedra-db`, [install the matching CLI and server from the source archive](/guides/installation#install-the-cli-and-server-together). Use `nabedra database <command>` or `python -m nabedra database <command>`.
 
+## TypeScript launcher
+
+Run `./node_modules/.bin/nabedra` from the application directory where you installed the package. [Install the TypeScript package](/guides/installation#install-the-typescript-package)
+
+```sh
+./node_modules/.bin/nabedra database --help
+```
+
+For commands that invoke the native server, use the `0.1.x` OLAP or OLTP build required by the command. Set `NABEDRA_SERVER_BINARY` to its executable path. If you leave it unset, the launcher looks beside the Node.js executable and then on `PATH`. [Install a matching server from source](/guides/installation#install-a-preview-server)
+
+## Database launcher commands
+
+Use the command group with the launcher path for your installation.
+
 | Command | Purpose |
 | --- | --- |
-| `nabedra --version --json` | Report the Python and resolved native server versions. |
+| `nabedra --version --json` | Report the launcher and resolved native server versions. |
 | `database init` | Create an OLAP configuration and protected authentication material for fixed or serverless mode. |
-| `database serve --config PATH` | Supervise the configured API and local workers. |
+| `database serve --config PATH` | Supervise the configured API and any local workers. A local OLTP configuration runs its worker inside the API process. |
 | `database worker --bootstrap PATH` | Run a worker with its protected bootstrap document. |
-| `database doctor --config PATH --json` | Validate configuration and perform a read probe. |
+| `database doctor --config PATH --json` | Validate OLAP configuration and perform a read probe. |
 | `database cluster status --url URL --admin-token-file PATH` | Inspect enrollment, worker capacity, and policy state. |
 | `database cluster scale N --url URL --admin-token-file PATH` | Set desired worker count through a configured provider. |
 | `database migrate --storage URL --region REGION --cluster-id UUID --confirm-writers-stopped` | Upgrade a stopped OLAP catalog for its intended cluster. |
@@ -39,6 +53,19 @@ The published Cargo package runs OLAP. Use the [preview server installs](/guides
 | `data-worker --bootstrap PATH`, `growth-plan` | Experimental [OLTP deployment](/operations/oltp-deployment) and capacity planning. |
 
 See [backup, restore, and migration](/operations/backup-and-migration) for command examples and storage prerequisites.
+
+## Native Cache server
+
+After installing the [Cache preview](/guides/installation#install-a-preview-server), run `./.nabedra-cache/bin/nabedra-db --version` from the installation directory and check for the `cache` suffix. Use that executable path for the commands below.
+
+| Command | Purpose |
+| --- | --- |
+| `serve --config PATH` | Start a standalone RESP2 listener with the given TOML configuration. |
+| `cache controller --config PATH` | Start a cluster metadata voter. |
+| `cache worker --config PATH` | Start a cluster data worker. |
+| `cache admin --config PATH status` | Print the cluster's committed topology as JSON. The operator TOML supplies the controller endpoints and TLS settings. |
+
+Run `./.nabedra-cache/bin/nabedra-db cache admin --help` to list the other administrative commands. See [standalone Cache configuration](/server/cache) and [private EC2 deployment](/server/cache#deploy-a-private-cluster-on-ec2).
 
 ## Events broker
 

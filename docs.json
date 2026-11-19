@@ -7,7 +7,7 @@
     "light": "#67E8F9",
     "dark": "#164E63"
   },
-  "description": "Documentation for Nabedra Database, its Python ORM, and Nabedra Events.",
+  "description": "Documentation for Nabedra Database, the Python and TypeScript ORMs, Nabedra Cache, and Nabedra Events.",
   "navigation": {
     "tabs": [
       {
@@ -37,6 +37,24 @@
           {
             "group": "Request lifecycle",
             "pages": ["python/receipts", "python/errors"]
+          }
+        ]
+      },
+      {
+        "tab": "TypeScript ORM",
+        "groups": [
+          {
+            "group": "Use the ORM",
+            "pages": ["typescript/quickstart"]
+          }
+        ]
+      },
+      {
+        "tab": "Cache",
+        "groups": [
+          {
+            "group": "Nabedra Cache",
+            "pages": ["server/cache", "cache/clients"]
           }
         ]
       },

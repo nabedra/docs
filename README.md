@@ -1,6 +1,6 @@
 # Nabedra documentation
 
-Mintlify site for Nabedra Database, the Python ORM, and Nabedra Events. The site documents [nabedra-database at `1418bad`](https://github.com/zPy52/nabedra-database/tree/1418bad88e1df1b8c868b88889a120e37059c1c0). See [docs.json](docs.json) for navigation and [index.mdx](index.mdx) for the landing page.
+Mintlify site for Nabedra Database, the Python and TypeScript ORMs, Nabedra Cache, and Nabedra Events. The site documents [nabedra-database at `8ce51c0`](https://github.com/zPy52/nabedra-database/tree/8ce51c071f2781b425544b6b45b4d2b73fc1a158). See [docs.json](docs.json) for navigation and [index.mdx](index.mdx) for the landing page.
 
 ## Preview locally
 

@@ -1,6 +1,6 @@
 ---
 title: "Develop Nabedra"
-description: "Work in the monorepo and run native server and Python package checks."
+description: "Run checks for the native server, Python and TypeScript ORMs, and Cache."
 ---
 
 Our policy follows [T3 Code's contribution policy](https://github.com/pingdotgg/t3code/blob/main/CONTRIBUTING.md),
@@ -31,13 +31,22 @@ merge are discretionary. Avoid automated spam, repeated pings and attempts to
 bypass limits. If a PR closes, address its reason and request reconsideration
 there or link a focused replacement.
 
+For changes to shared ORM behavior, including server changes that affect ORM
+callers, update the Python and TypeScript implementations and tests in the same
+PR. Compare public behavior with the same fixtures and server version. Bump both
+package versions together, including for language-specific releases. Document
+any language-specific exceptions and report skipped checks as unverified. [ORM parity policy](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/docs/testing/orm-parity.md)
+
 ## Development checks
 
-The [server](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/README.md) and [Python ORM](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/orm/python/README.md) guides cover
-setup. Run commands from the repository root. Keep build outputs, credentials,
-local installations and generated acceptance reports out of commits.
+Start in the root of the `nabedra-database` checkout. Keep build outputs,
+credentials, local installations and generated acceptance reports out of
+commits. [Server setup](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/server/README.md), [Python ORM setup](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/python/README.md)
 
-For Python changes, install the checkout with the gateway extra and run:
+### Python
+
+Use Python 3.11 or newer and install the checkout with the gateway extra.
+Substitute your Python executable for `python3.11` if needed.
 
 ```sh
 python3.11 -m venv orm/python/.venv
@@ -46,7 +55,46 @@ orm/python/.venv/bin/python -m unittest discover -s orm/python/tests -v
 orm/python/.venv/bin/python -m unittest discover -s scripts -p 'test_*.py' -v
 ```
 
-For Rust changes, run these checks sequentially:
+### TypeScript
+
+Use Node.js 22.13 or newer. Install OpenSSL to enable the local TLS checks. The
+test script compiles the package and checks types and runtime behavior.
+
+```sh
+(
+  cd orm/typescript &&
+    npm ci &&
+    npm test
+)
+```
+
+To enable the Python comparisons, set `NABEDRA_TEST_PYTHON` to an absolute path
+to a Python 3.11 or newer executable. For live tests, set
+`NABEDRA_TEST_SERVER_BINARY` to an absolute path to an OLTP build and
+`NABEDRA_TEST_OLAP_BINARY` to an absolute path to a streaming-capable OLAP
+build. Keep the two binaries at different paths, for example by setting a
+separate `CARGO_TARGET_DIR` for each build. The live OLAP tests also need
+`NABEDRA_TEST_PYTHON`. The suite skips comparisons and live checks whose paths
+are unset. [TypeScript ORM verification](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/docs/testing/typescript-orm.md)
+
+### Cache client contract
+
+With Python 3.11 or newer, Node.js 22.13 or newer, and OpenSSL, run the shared
+checks against both installed packages.
+
+```sh
+bash orm/cache-contract/run.sh
+```
+
+If `python3` is older than 3.11, set `NABEDRA_TEST_PYTHON` to a supported
+executable. The runner creates a local protocol fixture and prints a pass for
+each installed client. To also check server-backed behavior, point it at a
+disposable Cache endpoint with `NABEDRA_CACHE_TEST_CONFIG`. This check sets
+and deletes keys in the `catalog` namespace. [Cache test configuration](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/cache-contract/README.md#check-both-installed-packages)
+
+### Rust
+
+Run these checks sequentially.
 
 ```sh
 export CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
@@ -55,7 +103,11 @@ cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warn
 cargo test --locked --manifest-path server/Cargo.toml
 ```
 
-These commands use the default OLAP features. For OLTP, pass `--no-default-features --features oltp` to Clippy and tests. Check both engines when changing shared code.
+These commands use the default OLAP features. For OLTP, add
+`--no-default-features --features oltp` to Clippy and tests. Place feature flags
+before `--` in the Clippy command. For the full Cache test suite, run
+`cargo test` on Linux with `--no-default-features --features cache`.
+Check each affected engine when changing shared code.
 
 Changes to worker execution or recovery must follow [AGENTS.md](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/AGENTS.md),
 the [scheduling plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md) and the

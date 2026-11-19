@@ -1,0 +1,97 @@
+---
+title: "Connect from TypeScript"
+description: "Install the Node.js client, create a typed table, and query it over HTTP."
+---
+
+Use Node.js 22.13 or newer and [install the TypeScript package from source](/guides/installation#install-the-typescript-package). This guide uses the `0.2.0` source preview.
+
+Connect to a running Nabedra Database server. To start one locally, follow [Run local OLTP](/server/oltp) or [configure an OLAP server with S3](/server/configuration). In your application shell, set `NABEDRA_TOKEN` to the server's data bearer token.
+
+```sh
+export NABEDRA_TOKEN='<same-token-configured-on-your-server>'
+```
+
+## Create and query a table
+
+Save the example as `users.mts` in the project where you installed the package. Use your server's base URL. If your endpoint requires a database selector, add it to the constructor options, for example `database: "local"` for the native OLTP guide.
+
+```typescript
+import assert from "node:assert/strict"
+import { randomUUID } from "node:crypto"
+import { Database, col } from "nabedra"
+
+const db = new Database({ url: "http://127.0.0.1:8000" })
+const users = await db.createTable(
+  `users_${randomUUID().replaceAll("-", "")}`,
+  { id: String, age: BigInt },
+  "id",
+)
+
+await users.insertMany([
+  { id: "alice", age: 24n },
+  { id: "bob", age: 17n },
+])
+
+const adults = users.where(col("age").ge(18n)).select("id", "age")
+const rows = await adults.collect()
+assert.deepEqual(rows, [{ id: "alice", age: 24n }])
+console.log(rows)
+await users.drop()
+```
+
+```sh
+node --experimental-strip-types users.mts
+```
+
+The script prints `[ { id: 'alice', age: 24n } ]` and drops the example table.
+
+### Schema and query types
+
+| Schema value | TypeScript value | Database type |
+| --- | --- | --- |
+| `String` | `string` | UTF-8 string |
+| `BigInt` | `bigint` | Signed 64-bit integer |
+| `Number` | `number` | 64-bit float |
+| `Boolean` | `boolean` | Boolean |
+
+Use `bigint` literals such as `24n` for integer columns. The client preserves the full signed 64-bit range. TypeScript infers row, key, update, and projection types from `createTable`. Use `await db.table(name)` to discover an existing table by name.
+
+Table operations such as `get`, `update`, and `delete` return promises. Query builders such as `where`, `select`, `orderBy`, and `limit` return new queries synchronously. Await `collect()` for rows, `count()` for the number of matching rows after the limit, or `explain()` for the plan. The server rejects collected results above 10,000 rows.
+
+## Connection options
+
+Set `token` to override `NABEDRA_TOKEN`. For HTTPS with a private CA, set `caFile` to the PEM file. The client verifies the HTTPS certificate and hostname. `timeout` defaults to 30 seconds and bounds connection setup and socket inactivity. The server build determines which engine runs even if you set the client's `mode` option.
+
+## Recover a write
+
+An `UnknownOutcomeError` means the client could not confirm whether a write took effect. Ordinary write calls make one attempt with a fresh request ID. Keep the ID from the error and check the write's effect before calling the method again. For a row update, read the row with `await users.get(key)` and compare it with the intended result.
+
+To track a write by receipt, save the operation, payload, and a caller-generated UUID before calling `await db.submit(operation, payload, { requestId })`. Save the returned `runId`. Await `receipt.wait()` and inspect the returned receipt's terminal `state`, `result`, and `error`. To resume polling, use the same database, credentials, and selector and call `await db.receipt(runId, requestId)` while the receipt is available. The server's retention rules and recovery options for a lost run ID are shared by both ORMs. [Receipt recovery and retention](/python/receipts#recovery-and-retention)
+
+## Stream OLAP query batches
+
+Install the [OLAP source build](/guides/installation#install-a-preview-server) and [start it with S3 storage](/server/configuration). To stream the results above, insert this block before `await users.drop()`.
+
+```typescript
+const batches = adults.stream({ batchRows: 64 })
+try {
+  for await (const batch of batches) {
+    console.log(batch)
+  }
+} finally {
+  await batches.close()
+}
+```
+
+The stream prints one batch containing Alice's row. Use the default order or sort by the primary key in ascending order. Each row batch contains up to `batchRows` matches, read from a pinned snapshot. Set `format: "arrow"` for Apache Arrow record batches. [Streaming queries and leases](/reference/streaming-http)
+
+## Other package entry points
+
+| Task | Import or command |
+| --- | --- |
+| Work with in-memory keys | [`nabedra/cache`](/cache/clients) |
+| Publish events or consume a subscription | [`nabedra/events`](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/typescript/src/events/index.ts) |
+| Write events to OLAP | [`nabedra/events/sink`](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/typescript/README.md#other-entry-points) |
+| Run a gateway or administer a cluster | [`Gateway` or `Cluster` from `nabedra`](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/typescript/src/index.ts) |
+| Use Docker, EC2, or EKS adapters | [`nabedra/deployment`](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/typescript/README.md#other-entry-points) |
+| Run the installed CLI | [`nabedra database`](/reference/cli#typescript-launcher) |

@@ -1,9 +1,9 @@
 ---
 title: "Installation"
-description: "Install the latest Python client and OLAP server, or download the source for preview features."
+description: "Install the Python or TypeScript ORM, build a database server, or install Nabedra Cache from source."
 ---
 
-Install the Python client from PyPI and the OLAP server from crates.io. If you already have a running server, install the client and [connect from Python](/python/connect).
+Install the Python ORM from PyPI and the OLAP server from crates.io. Use the [source archive](#download-the-source-archive) for the TypeScript ORM, Nabedra Cache, or the OLTP server.
 
 ## Install the Python package
 
@@ -16,6 +16,25 @@ python3.11 -m venv .venv
 ```
 
 The core package uses the Python standard library. For optional integrations, install `'nabedra[gateway]'` for HTTPX or `'nabedra[aws]'` for Boto3. The `database` extra adds no dependencies. [PyPI package](https://pypi.org/project/nabedra/)
+
+If you have a running server, follow [Connect from Python](/python/connect).
+
+## Install the TypeScript package
+
+Use Node.js 22.13 or newer with npm. In your current shell, [download the source archive](#download-the-source-archive).
+
+Run these commands from your application directory. If you are starting a new project, run `npm init -y` first.
+
+```bash
+nabedra_app="$PWD"
+(
+  cd "$nabedra_source/orm/typescript" &&
+  npm ci --include=dev &&
+  npm pack --pack-destination "$nabedra_app"
+) && npm install ./nabedra-0.2.0.tgz && npm ls nabedra
+```
+
+The package list shows `nabedra@0.2.0`. Keep the tarball at that path for future installs from the lockfile. To use the package, follow [Connect from TypeScript](/typescript/quickstart) or [Use Cache from Python or TypeScript](/cache/clients).
 
 ## Install the native server
 
@@ -32,33 +51,34 @@ Cargo installs `nabedra-db`, typically in `~/.cargo/bin`. Add the Cargo bin dire
 
 | Component | Published package | Features available from the source archive |
 | --- | --- | --- |
-| Native server | `nabedra-database` for OLAP with S3 | [Local OLTP](/server/oltp), [OLAP streaming](/python/streaming), and [offline data interchange](/operations/backup-and-migration#move-olap-tables-to-oltp) |
-| Python | `nabedra` for the ORM and gateway | Launcher support for `nabedra-db`, [streaming and Arrow](/python/streaming), the [Events client](/events/python-client), and [OLTP deployment adapters](/operations/oltp-deployment#provider-integrations) |
+| Native server | `nabedra-database` for OLAP with S3 | [Local OLTP](/server/oltp), [Nabedra Cache](/server/cache), [OLAP streaming](/python/streaming), and [offline data interchange](/operations/backup-and-migration#move-olap-tables-to-oltp) |
+| Python | `nabedra` for the ORM and gateway | Launcher support for `nabedra-db`, [Cache client](/cache/clients), [streaming and Arrow](/python/streaming), [Events client](/events/python-client), and [OLTP deployment adapters](/operations/oltp-deployment#provider-integrations) |
+| TypeScript | Unpublished | [`nabedra` ORM and CLI](#install-the-typescript-package) and [Cache client](/cache/clients) |
 | Events broker | Unpublished | [Broker and Docker fixture](/events/broker) and [AWS Terraform configuration](/events/aws) |
 
 For a server installed with Cargo, run `nabedra-db serve` directly. The current PyPI launcher checks for the former executable name, `nabedra-database-server`. For `nabedra database serve`, [install the CLI and server together](#install-the-cli-and-server-together).
 
 ## Download the source archive
 
-For a feature that still needs source, use `curl` and `tar` to download and extract the latest `main` archive. Keep using the same shell so `$nabedra_source` points to the extracted files.
+In Bash or Zsh, use `curl` and `tar` to extract the source revision documented on this site. Keep using the same shell so `$nabedra_source` points to the extracted files.
 
 ```bash
 nabedra_download="$(mktemp -d)"
 nabedra_source="$nabedra_download/source"
 mkdir "$nabedra_source"
-curl -fLsS https://github.com/zPy52/nabedra-database/archive/refs/heads/main.tar.gz \
+curl -fLsS https://github.com/zPy52/nabedra-database/archive/8ce51c071f2781b425544b6b45b4d2b73fc1a158.tar.gz \
   -o "$nabedra_download/nabedra-database.tar.gz" &&
   tar -xzf "$nabedra_download/nabedra-database.tar.gz" \
     --strip-components=1 -C "$nabedra_source"
 ```
 
-The archive follows development on `main`. Use the same download for components you plan to run together.
+Use the same download for components you plan to run together.
 
 ## Install a preview server
 
 Start with the [native server build prerequisites](#install-the-native-server). For OLTP, also install a C++ compiler, CMake, and libclang for RocksDB. On Debian, install `build-essential cmake clang libclang-dev`. On macOS, make CMake and libclang available to the compiler and bindgen.
 
-From your working directory, use the [extracted source archive](#download-the-source-archive). Choose one engine. Each command uses a separate installation directory so both binaries can coexist.
+The builds install into separate directories so you can keep multiple engines. Before running the command for your engine, [download the source archive](#download-the-source-archive).
 
 <CodeGroup>
 
@@ -73,9 +93,15 @@ cargo install --locked --path "$nabedra_source/server" --root "$PWD/.nabedra-ola
 ./.nabedra-olap/bin/nabedra-db --version
 ```
 
+```bash Cache
+cargo install --locked --path "$nabedra_source/server" \
+  --no-default-features --features cache --root "$PWD/.nabedra-cache"
+./.nabedra-cache/bin/nabedra-db --version
+```
+
 </CodeGroup>
 
-Check that the version output includes the engine you selected. For OLTP, follow [Run local OLTP](/server/oltp). Use the OLAP archive build for [streaming](/python/streaming) and [offline export](/operations/backup-and-migration#move-olap-tables-to-oltp).
+Check that the version output ends in `oltp`, `olap`, or `cache` for the selected engine. To start the installed server, follow [Run local OLTP](/server/oltp) or [Run Nabedra Cache](/server/cache). Use the OLAP archive build for [streaming](/python/streaming) and [offline export](/operations/backup-and-migration#move-olap-tables-to-oltp).
 
 The default source build selects `olap,s3`. Use `--no-default-features --features olap` for OLAP without AWS dependencies or `--no-default-features --features oltp-backup-s3` for OLTP with optional S3 backups. Cargo builds require exactly one engine.
 
@@ -89,7 +115,11 @@ python3.11 "$nabedra_source/scripts/install_nabedra.py" --prefix "$PWD/.nabedra"
 source .nabedra/bin/activate
 ```
 
-The installer defaults to OLAP with S3. It honors `CARGO_TARGET_DIR`. For OLTP, install the [OLTP build prerequisites](#install-a-preview-server), use `--engine oltp` with a separate prefix, and add `--with-s3` if you need S3 backups. When set, `NABEDRA_SERVER_BINARY` selects the executable. Otherwise the launcher checks its Python environment and then `PATH`. Use [cluster setup](/server/clusters) to configure a supervised OLAP server.
+The Python installer supports OLAP and OLTP and defaults to OLAP with S3. For Cache, use the [Cache preview build](#install-a-preview-server).
+
+The installer honors `CARGO_TARGET_DIR`. For OLTP, install the [OLTP build prerequisites](#install-a-preview-server), use `--engine oltp` with a separate prefix, and add `--with-s3` if you need S3 backups.
+
+When set, `NABEDRA_SERVER_BINARY` selects the executable. Otherwise the launcher checks its Python environment and then `PATH`. Use [cluster setup](/server/clusters) to configure a supervised OLAP server.
 
 ## Build a container image
 
@@ -105,6 +135,13 @@ docker build --build-arg NABEDRA_ENGINE=olap -t nabedra:olap "$nabedra_source"
 docker build --build-arg NABEDRA_ENGINE=oltp -t nabedra:oltp "$nabedra_source"
 ```
 
+```bash Cache
+docker build --build-arg NABEDRA_ENGINE=cache --target cache -t nabedra:cache "$nabedra_source" &&
+  docker run --rm nabedra:cache --version
+```
+
 </CodeGroup>
 
-The OLAP image runs the Python CLI, and the OLTP image runs `nabedra-db`. Use `--build-arg NABEDRA_S3=true` or `false` to override the S3 default. [Dockerfile](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/Dockerfile)
+The OLAP image runs the Python CLI. The OLTP and Cache images run `nabedra-db`. Use `--build-arg NABEDRA_S3=true` or `false` to override the S3 default for OLAP or OLTP. The Cache image uses `NABEDRA_S3=false`. [Dockerfile](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/Dockerfile)
+
+The Cache image reports a version ending in `cache`. [Start the Cache container](/server/cache#start-cache-in-docker)

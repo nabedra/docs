@@ -1,0 +1,84 @@
+---
+title: "Use Cache from Python or TypeScript"
+description: "Read and write expiring values with the Cache clients, configure TLS, and handle cache misses and uncertain writes."
+---
+
+Use the `0.2.0` Cache clients from the source archive to store bytes by key. Start a [local Cache server](/server/cache) at `127.0.0.1:6379` and leave it running while you try either client in a second terminal.
+
+## Set and read a value
+
+<Tabs>
+<Tab title="Python">
+
+Use Python 3.11 or newer and [download the source archive](/guides/installation#download-the-source-archive) in your current shell. Run these commands from your project directory, substituting your Python executable if needed.
+
+```sh
+python3.11 -m venv .venv-cache
+.venv-cache/bin/python -m pip install "$nabedra_source/orm/python"
+```
+
+Save this as `cache-example.py` and run `.venv-cache/bin/python cache-example.py`.
+
+```python
+from nabedra.cache import Cache
+
+with Cache.connect("redis://127.0.0.1:6379", namespace="catalog") as cache:
+    cache.set("sku:42", b"in stock", ttl_ms=30_000)
+    value = cache.get("sku:42")
+    print("cache miss" if value is None else value.decode("utf-8"))
+```
+
+</Tab>
+<Tab title="TypeScript">
+
+Use Node.js 22.13 or newer and [install the TypeScript package from source](/guides/installation#install-the-typescript-package). Save this as `cache-example.mjs` in the project where you installed it and run `node cache-example.mjs`.
+
+```typescript
+import { Cache } from "nabedra/cache"
+
+const cache = await Cache.connect("redis://127.0.0.1:6379", { namespace: "catalog" })
+try {
+  await cache.set("sku:42", new TextEncoder().encode("in stock"), { ttlMs: 30_000 })
+  const value = await cache.get("sku:42")
+  console.log(value === null ? "cache miss" : new TextDecoder().decode(value))
+} finally {
+  await cache.close()
+}
+```
+
+</Tab>
+</Tabs>
+
+Both examples print `in stock` and close the client's connection pool. The entry expires after 30 seconds. Both clients encode keys the same way, so the same namespace and key identify the same entry.
+
+## Values, expiry, and counters
+
+| Operation | Behavior |
+| --- | --- |
+| `get(key)` | Returns `bytes` in Python or `Uint8Array` in TypeScript. A missing or expired key returns `None` or `null`. An empty byte value is a hit. |
+| `set(key, value, ...)` | Returns whether the write applied. Set `when` to `absent` or `present` to require a missing or live key. A successful write uses the supplied `ttl_ms` / `ttlMs` in positive milliseconds, or clears any existing expiry if you omit it. |
+| `ttl_ms(key)` / `ttlMs(key)` | Returns the remaining whole milliseconds, `-1` for a key without expiry, or `-2` for a miss. |
+| `expire(key, milliseconds)` | Sets a new relative expiry and returns whether the key existed. A zero duration deletes the key. |
+| `persist(key)` | Clears expiry and returns whether the live key had an expiry. |
+| `delete(key)` | Returns whether it removed a live key. |
+| `increment(key, delta)` | Atomically adds to a signed 64-bit integer and returns the sum as a Python `int` or TypeScript `bigint`. A miss starts at zero and creates a key without expiry. Existing keys keep their TTL. The stored bytes are canonical decimal ASCII, such as `42` or `-42`. Invalid integer bytes and overflow raise `ValidationError` before applying the write. |
+
+TTL inputs take whole milliseconds up to 9,007,199,254,740,991. The minimum is 1 for `set` and 0 for `expire`.
+
+Keys must contain 1 to 250 UTF-8 bytes, and values can be at most 1 MiB. The namespace defaults to `default` and accepts 1 to 64 lowercase ASCII letters, digits, underscores, or hyphens. Both clients send keys as `nb:<namespace>:<unpadded Base64URL key>`. From a RESP2 client, read `nb:catalog:c2t1OjQy` to inspect the `sku:42` entry in the `catalog` namespace.
+
+## Connect over TLS
+
+Use `redis://` for explicit plaintext loopback development. For a remote listener, use a `rediss://` endpoint whose hostname matches the server certificate. Pass `username` and `password` as connection options and choose a namespace whose key prefix the server's ACL allows. The `catalog` namespace prefixes keys with `nb:catalog:`. Pass the private CA PEM file via `ca_file` in Python or `caFile` in TypeScript if the service uses a private CA. Otherwise, the clients use their default trust roots.
+
+## Connect to a cluster
+
+For a cluster, pass up to 32 seed endpoint URLs to `Cache.connect` and set `cluster=True` in Python or `cluster: true` in TypeScript. Use the same transport for every endpoint. The client discovers the slot map and routes each command to its primary. To authorize additional nodes, list their advertised URLs in `allowed_nodes` / `allowedNodes` or, with TLS, set `allowed_node_suffix` / `allowedNodeSuffix` to allow subdomains of a private DNS suffix on the same ports as the seeds. The clients validate discovered addresses before connecting and sending credentials.
+
+## Timeouts and errors
+
+Each client has a pool of 16 persistent connections by default, with one request in flight per connection. Set `pool_size` / `poolSize` to change the pool size. The default deadline is 2,000 ms per operation and includes opening and authenticating a connection, sending the command, waiting for the reply, and following any permitted redirects. Use `timeout_ms` / `timeoutMs` to change it.
+
+Import both clients' error types from `nabedra`. `AuthenticationError` indicates rejected credentials or missing permissions. `OverloadedError` indicates that the client or server rejected the operation before execution. If the connection fails after the client begins sending a write, or the server returns an unrecognized mutation reply, the client raises `UnknownOutcomeError`. Reconcile the key with your application state before attempting the write again. Repeating `increment` may apply the delta twice. Invalid cluster discovery or redirects raise `ProtocolError`.
+
+See the [shared Cache client contract](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/cache-contract/README.md) for the full error map, key encoding, and cluster retry rules.

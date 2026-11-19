@@ -1,0 +1,109 @@
+---
+title: "Run Nabedra Cache"
+description: "Start a standalone RESP2 cache, configure TLS and access controls, or deploy a private cluster."
+---
+
+Nabedra Cache stores binary string values, expirations, and signed 64-bit counters in RAM. Use it for values your application can rebuild from an authoritative store. Restarting a standalone server empties the cache.
+
+## Start a local cache
+
+Install the [Cache source preview](/guides/installation#install-a-preview-server). In the directory containing `.nabedra-cache`, save this configuration as `cache-local.toml`.
+
+```toml
+listen = "127.0.0.1:6379"
+plaintext_loopback = true
+```
+
+This configuration accepts connections without credentials on loopback. Start the server and leave it running.
+
+```sh
+./.nabedra-cache/bin/nabedra-db serve --config cache-local.toml
+```
+
+In a second terminal with `redis-cli` installed, write a key that expires after 60 seconds and read it back.
+
+```sh
+redis-cli -2 -h 127.0.0.1 -p 6379 SET nb:catalog:c2t1OjQy 'in stock' EX 60
+redis-cli -2 -h 127.0.0.1 -p 6379 --raw GET nb:catalog:c2t1OjQy
+```
+
+The commands print `OK` and `in stock`. The Python and TypeScript clients use this wire key for `sku:42` in the `catalog` namespace. [Use the Cache clients](/cache/clients)
+
+## Start Cache in Docker
+
+Build the [Cache image](/guides/installation#build-a-container-image) and run it from the directory containing the [local configuration](#start-a-local-cache). The image runs as the unprivileged user `nabedra`. Give that user read access to any bind-mounted configuration and TLS files.
+
+```sh
+docker run --rm --name nabedra-cache --memory=640m --memory-swap=640m \
+  --mount "type=bind,source=$PWD/cache-local.toml,target=/etc/nabedra/cache.toml,readonly" \
+  nabedra:cache
+```
+
+The image reads `/etc/nabedra/cache.toml` by default. With the loopback configuration, run the client in the same network namespace. From another terminal, this command should print `PONG`.
+
+```sh
+docker run --rm --network container:nabedra-cache --entrypoint valkey-cli \
+  valkey/valkey:8.1.11-trixie -2 PING
+```
+
+To connect from the host or another network namespace, mount the TLS certificate and key, use a TLS configuration that listens on the container interface, and publish the port only to authorized clients. Configure the client for the published TLS endpoint. [Connect over TLS](/cache/clients#connect-over-tls)
+
+## Configure TLS and access controls
+
+Set `listen` to an address on your private network and restrict inbound access to your applications. Leave `plaintext_loopback` disabled. Supply a PEM certificate chain valid for the hostname clients use, its private key, and at least one `[[users]]` entry. The server resolves relative certificate and key paths beside the TOML file.
+
+```toml
+listen = "10.0.0.20:6379"
+eviction = "noeviction"
+
+[tls]
+certificate = "cache-chain.pem"
+private_key = "cache-key.pem"
+
+[[users]]
+username = "catalog"
+password = "replace-with-a-generated-secret"
+key_prefixes = ["nb:catalog:"]
+commands = ["get", "set", "del", "pttl", "pexpire", "persist", "incrby"]
+max_connections = 16
+```
+
+Replace `10.0.0.20`, the PEM paths, and the password before starting `serve --config` with this file. Restrict the TOML and key permissions to the service account. This user can run the listed data commands on keys that begin with `nb:catalog:` and open up to 16 authenticated connections, subject to the server-wide cap.
+
+Use the configured credentials and `catalog` namespace to set and read a value with a Cache client. A read with the same credentials in another namespace raises `AuthenticationError` and returns `NOPERM` on the wire. [Connect over TLS](/cache/clients#connect-over-tls)
+
+## Supported operations and limits
+
+Cache speaks RESP2 and implements a subset of Redis and Valkey commands. Use a RESP2 client configured for these data commands.
+
+| Task | Commands |
+| --- | --- |
+| Read or check keys | `GET`, `MGET`, `EXISTS` |
+| Write or delete keys | `SET`, `DEL`. `SET` accepts `NX` or `XX` and an optional `EX` or `PX` expiry. |
+| Manage expiry | `TTL`, `PTTL`, `EXPIRE`, `PEXPIRE`, `PERSIST` |
+| Add to a signed 64-bit counter | `INCRBY` |
+
+In a cluster, all keys in a multi-key command must hash to the same slot. RESP keys can use up to 512 bytes and values up to 1 MiB, subject to frame and reply limits. The [Cache clients](/cache/clients) impose their own key limits.
+
+Use `[limits]` to override the standalone defaults.
+
+| Setting | Default |
+| --- | --- |
+| `memory_bytes` | 512 MiB of accounted memory |
+| `data_bytes` | 128 MiB for stored entries |
+| `max_connections` | 64 connections |
+| `max_handshakes` | 16 concurrent TLS handshakes |
+| `max_pending` | 32 admitted commands |
+| `max_frame_bytes`, `max_pipeline_bytes`, `max_reply_bytes` | 1,088 KiB each |
+| `max_arguments` | 128 arguments per command frame |
+| `handshake_timeout_ms`, `io_timeout_ms` | 5,000 ms and 60,000 ms respectively |
+
+The server checks that `memory_bytes` covers connections, stored entries, and working space before it starts. Leave room above that budget in the container or service RSS limit for allocator and process overhead. When the command queue is full, the server returns `BUSY` before execution. The default `sampled_lru` policy evicts sampled entries to make room for a write and returns `OOM` if it cannot free enough space. With `noeviction`, a write that would exceed the store budget returns `OOM`.
+
+## Deploy a private cluster on EC2
+
+The reference layout uses three controller voters and three workers across three availability zones. Clients discover slots from private DNS seeds and send commands to the primary worker for each slot. Workers replicate values asynchronously to RAM in a different zone, so failover can lose writes that had yet to reach the replica. Controller EBS volumes store placement and lease metadata. If a slot loses both copies, it requires a cold reset before applications can refill it from the authoritative source.
+
+The EC2 runbook covers TLS bootstrap, synchronized ClockBound clocks, readiness checks, and worker growth, drain, and replacement. Use its private seed endpoints with the [cluster client settings](/cache/clients#connect-to-a-cluster). [EC2 deployment runbook](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/docs/cache/ec2.md)
+
+Docker tests exercised standalone and cluster behavior. EC2 deployment and recovery qualification and the Valkey performance gates remain open. [Cache test evidence](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/docs/testing/evidence/cache/README.md)
