@@ -1,6 +1,7 @@
 ---
 title: "Run local OLTP"
 description: "Run a single-replica RocksDB server, retain its data on restart, and understand OLTP query behavior."
+tag: "Preview"
 ---
 
 The experimental OLTP build persists indexed rows and transaction decisions in RocksDB. Start with standalone replication factor one (RF1). This setup keeps data on one volume, so drive or host loss requires recovery from a backup.

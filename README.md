@@ -29,6 +29,8 @@ mint broken-links
 
 ## Update the docs
 
+The site uses Mintlify's `luma` theme, restyled in [style.css](style.css) to follow the nabedra-web design guide (`../nabedra-web/DESIGN.md`). The overview page's hero, engine cards, and tabbed examples use the `nb-*` classes defined there.
+
 Add or edit an MDX file, then add new pages to the relevant navigation group in `docs.json`. Use site-root-relative links such as `/python/connect`. For behavior that depends on a particular release or acceptance run, cite the source revision or recorded evidence.
 
 Portions of the documentation are adapted from the [Nabedra Database repository](https://github.com/zPy52/nabedra-database). See [LICENSE](LICENSE) for the upstream MIT notice.

@@ -1,13 +1,45 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "luma",
   "name": "Nabedra",
-  "colors": {
-    "primary": "#155E75",
-    "light": "#67E8F9",
-    "dark": "#164E63"
-  },
   "description": "Documentation for Nabedra Database, the Python and TypeScript ORMs, Nabedra Cache, and Nabedra Events.",
+  "colors": {
+    "primary": "#0A0A0A",
+    "light": "#FAFAFA",
+    "dark": "#0A0A0A"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#0A0A0A"
+    }
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "/"
+  },
+  "favicon": "/favicon.svg",
+  "fonts": {
+    "family": "Geologica"
+  },
+  "styling": {
+    "codeblocks": {
+      "theme": {
+        "light": "github-light-default",
+        "dark": "github-dark-default"
+      }
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view"
+    ]
+  },
   "navigation": {
     "tabs": [
       {
@@ -15,15 +47,34 @@
         "groups": [
           {
             "group": "Get started",
-            "pages": ["index", "guides/quickstart", "guides/installation", "guides/task-tracker"]
+            "pages": [
+              "index",
+              "guides/quickstart",
+              "guides/installation",
+              "guides/task-tracker"
+            ]
           },
           {
             "group": "Database engines",
-            "pages": ["server/olap", "server/oltp", "architecture/database", "architecture/oltp-transactions"]
+            "pages": [
+              "server/olap",
+              "server/oltp",
+              "architecture/database",
+              "architecture/oltp-transactions"
+            ]
           },
           {
             "group": "Operate Nabedra",
-            "pages": ["server/configuration", "server/worker-runtime", "server/clusters", "server/gateway", "server/providers", "operations/oltp-deployment", "operations/backup-and-migration", "operations/troubleshooting"]
+            "pages": [
+              "server/configuration",
+              "server/worker-runtime",
+              "server/clusters",
+              "server/gateway",
+              "server/providers",
+              "operations/oltp-deployment",
+              "operations/backup-and-migration",
+              "operations/troubleshooting"
+            ]
           }
         ]
       },
@@ -32,11 +83,19 @@
         "groups": [
           {
             "group": "Use the ORM",
-            "pages": ["python/connect", "python/tables", "python/queries", "python/streaming"]
+            "pages": [
+              "python/connect",
+              "python/tables",
+              "python/queries",
+              "python/streaming"
+            ]
           },
           {
             "group": "Request lifecycle",
-            "pages": ["python/receipts", "python/errors"]
+            "pages": [
+              "python/receipts",
+              "python/errors"
+            ]
           }
         ]
       },
@@ -45,7 +104,10 @@
         "groups": [
           {
             "group": "Use the ORM",
-            "pages": ["typescript/quickstart"]
+            "pages": [
+              "typescript/quickstart"
+            ],
+            "tag": "Preview"
           }
         ]
       },
@@ -54,7 +116,11 @@
         "groups": [
           {
             "group": "Nabedra Cache",
-            "pages": ["server/cache", "cache/clients"]
+            "pages": [
+              "server/cache",
+              "cache/clients"
+            ],
+            "tag": "Preview"
           }
         ]
       },
@@ -63,7 +129,13 @@
         "groups": [
           {
             "group": "Nabedra Events",
-            "pages": ["events/broker", "events/python-client", "events/olap-sink", "events/aws"]
+            "pages": [
+              "events/broker",
+              "events/python-client",
+              "events/olap-sink",
+              "events/aws"
+            ],
+            "tag": "Preview"
           }
         ]
       },
@@ -72,11 +144,24 @@
         "groups": [
           {
             "group": "HTTP and command line",
-            "pages": ["reference/database-http", "reference/streaming-http", "reference/events-http", "reference/cli", "reference/limits"]
+            "pages": [
+              "reference/database-http",
+              "reference/streaming-http",
+              "reference/events-http",
+              "reference/cli",
+              "reference/limits"
+            ]
           },
           {
             "group": "Contribute",
-            "pages": ["contributing/development", "contributing/verification", "contributing/scheduler-contract", "contributing/oltp-contract", "contributing/oltp-acceptance", "contributing/benchmarks"]
+            "pages": [
+              "contributing/development",
+              "contributing/verification",
+              "contributing/scheduler-contract",
+              "contributing/oltp-contract",
+              "contributing/oltp-acceptance",
+              "contributing/benchmarks"
+            ]
           }
         ]
       }
@@ -84,7 +169,8 @@
   },
   "navbar": {
     "primary": {
-      "type": "github",
+      "type": "button",
+      "label": "GitHub",
       "href": "https://github.com/zPy52/nabedra-database"
     }
   },

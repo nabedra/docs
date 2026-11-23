@@ -1,42 +1,288 @@
 ---
 title: "Nabedra documentation"
+sidebarTitle: "Overview"
 description: "Query Nabedra from Python or TypeScript, run an in-memory cache, and publish and consume durable events."
+mode: "wide"
 ---
 
-Nabedra Database serves OLAP and OLTP queries over HTTP. Use the synchronous Python ORM or the asynchronous TypeScript ORM to work with either database engine.
+<div className="nb-hero">
+<div>
 
-Follow [Installation](/guides/installation) to get the latest published packages or download the source archive for preview features.
+<h1 className="nb-hero-title">Get started with <span className="nb-soft">Nabedra</span></h1>
 
-## Choose a database engine
+<p className="nb-hero-lede">Self-hosted engines for analytics, transactions, caching, and durable events. Query the database over HTTP from the Python or TypeScript ORM.</p>
 
-| Engine | Use it for | Start here |
-| --- | --- | --- |
-| OLAP | Analytical scans over immutable Parquet snapshots in S3 | [OLAP storage and queries](/server/olap) |
-| OLTP (source preview) | Indexed reads, writes, and transactions on RocksDB | [Run local OLTP](/server/oltp) |
+<div className="nb-actions">
+  <a className="nb-btn" href="/guides/quickstart">Read the quickstart <span className="nb-arrow">›</span></a>
+  <a className="nb-btn nb-btn-outline" href="/guides/installation">Installation</a>
+</div>
 
-Each database binary selects one engine at build time. To move OLAP tables to OLTP, use the [offline export and import commands](/operations/backup-and-migration#move-olap-tables-to-oltp).
+</div>
+<div>
 
-<CardGroup cols={2}>
-  <Card title="Python quickstart" icon="rocket" href="/guides/quickstart">
-    Start a database and write your first rows from Python.
-  </Card>
-  <Card title="Run an OLAP cluster" icon="network-wired" href="/server/clusters">
-    Configure storage, supervise workers, and inspect enrollment.
-  </Card>
-  <Card title="Python ORM" icon="code" href="/python/connect">
-    Connect from Python, define table schemas, and build queries.
-  </Card>
-  <Card title="TypeScript ORM" icon="code" href="/typescript/quickstart">
-    Install the source preview, create a typed table, and query it from Node.js.
-  </Card>
-  <Card title="Nabedra Cache" icon="memory" href="/server/cache">
-    Build the standalone Cache server from source and serve in-memory keys over RESP2.
-  </Card>
-  <Card title="Nabedra Events" icon="layer-group" href="/events/broker">
-    Run a separate broker for durable event logs and subscription checkpoints.
-  </Card>
-</CardGroup>
+<CodeGroup>
 
-<Note>
-This site documents the source at [`8ce51c0`](https://github.com/zPy52/nabedra-database/tree/8ce51c071f2781b425544b6b45b4d2b73fc1a158).
-</Note>
+```python Python
+from nabedra import Database, col
+
+db = Database("http://127.0.0.1:8000", mode="olap")
+tasks = db.create_table(
+    "tasks",
+    {"id": str, "title": str, "priority": int},
+    key="id",
+)
+tasks.insert_many([
+    {"id": "t1", "title": "Write docs", "priority": 4},
+])
+
+urgent = tasks.where(col("priority") >= 3)
+print(urgent.select("id", "title").collect())
+```
+
+```typescript TypeScript
+import { Database, col } from "nabedra"
+
+const db = new Database({ url: "http://127.0.0.1:8000" })
+const users = await db.createTable(
+  "users",
+  { id: String, age: BigInt },
+  "id",
+)
+await users.insertMany([
+  { id: "alice", age: 24n },
+])
+
+const adults = users.where(col("age").ge(18n)).select("id", "age")
+console.log(await adults.collect())
+```
+
+</CodeGroup>
+
+</div>
+</div>
+
+<div className="nb-section">
+
+<h2 className="nb-section-title" id="engines">Engines</h2>
+
+<p className="nb-section-lede">Each database binary selects OLAP or OLTP at build time. Cache and Events run as separate servers.</p>
+
+<div className="nb-engines">
+
+<div className="nb-engine" data-engine="olap">
+  <div className="nb-engine-head">
+    <h3 className="nb-engine-name">Analytics</h3>
+    <span className="nb-tag nb-tag-neutral">Published</span>
+    <svg className="nb-engine-mark" viewBox="0 0 24 24" aria-hidden="true" strokeLinejoin="round" strokeWidth="1.6"><path d="M12 2.5 21.5 12 12 21.5 2.5 12Z" /></svg>
+  </div>
+  <div className="nb-engine-id">{'mode="olap"'}</div>
+  <p className="nb-engine-desc">Analytical scans over immutable Parquet snapshots that the server publishes to your S3 bucket.</p>
+  <div className="nb-specs">
+    <div className="nb-spec"><span className="nb-spec-key">Storage</span><span className="nb-spec-value">Parquet in S3</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Interface</span><span className="nb-spec-value">HTTP</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Clients</span><span className="nb-spec-value">Python, TypeScript</span></div>
+  </div>
+  <div className="nb-actions">
+    <a className="nb-btn nb-btn-sm" href="/server/olap">Read docs</a>
+    <a className="nb-btn nb-btn-sm nb-btn-outline" href="/server/clusters">Run a cluster</a>
+  </div>
+</div>
+
+<div className="nb-engine" data-engine="oltp">
+  <div className="nb-engine-head">
+    <h3 className="nb-engine-name">Transactions</h3>
+    <span className="nb-tag">Preview</span>
+    <svg className="nb-engine-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="2.5" width="19" height="19" rx="3" /></svg>
+  </div>
+  <div className="nb-engine-id">{'mode="oltp"'}</div>
+  <p className="nb-engine-desc">Indexed reads, writes, and transactions on RocksDB, with committed rows kept across restarts.</p>
+  <div className="nb-specs">
+    <div className="nb-spec"><span className="nb-spec-key">Storage</span><span className="nb-spec-value">RocksDB on local disk</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Interface</span><span className="nb-spec-value">HTTP</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Clients</span><span className="nb-spec-value">Python, TypeScript</span></div>
+  </div>
+  <div className="nb-actions">
+    <a className="nb-btn nb-btn-sm" href="/server/oltp">Read docs</a>
+    <a className="nb-btn nb-btn-sm nb-btn-outline" href="/operations/oltp-deployment">Deploy</a>
+  </div>
+</div>
+
+<div className="nb-engine" data-engine="cache">
+  <div className="nb-engine-head">
+    <h3 className="nb-engine-name">Cache</h3>
+    <span className="nb-tag">Preview</span>
+    <svg className="nb-engine-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20Z" /></svg>
+  </div>
+  <div className="nb-engine-id">nabedra.cache</div>
+  <p className="nb-engine-desc">Byte values, expirations, and signed 64-bit counters held in RAM for data you can rebuild.</p>
+  <div className="nb-specs">
+    <div className="nb-spec"><span className="nb-spec-key">Storage</span><span className="nb-spec-value">Memory, emptied on restart</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Interface</span><span className="nb-spec-value">RESP2</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Clients</span><span className="nb-spec-value">Python, TypeScript, redis-cli</span></div>
+  </div>
+  <div className="nb-actions">
+    <a className="nb-btn nb-btn-sm" href="/server/cache">Read docs</a>
+    <a className="nb-btn nb-btn-sm nb-btn-outline" href="/cache/clients">Clients</a>
+  </div>
+</div>
+
+<div className="nb-engine" data-engine="events">
+  <div className="nb-engine-head">
+    <h3 className="nb-engine-name">Events</h3>
+    <span className="nb-tag">Preview</span>
+    <svg className="nb-engine-mark" viewBox="0 0 24 24" aria-hidden="true" strokeLinejoin="round" strokeWidth="1.6"><path d="M12 3 21.5 20.5H2.5Z" /></svg>
+  </div>
+  <div className="nb-engine-id">nabedra.events</div>
+  <p className="nb-engine-desc">A durable log per topic partition and a checkpoint per subscription, replicated across brokers.</p>
+  <div className="nb-specs">
+    <div className="nb-spec"><span className="nb-spec-key">Storage</span><span className="nb-spec-value">Replicated partition logs</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Interface</span><span className="nb-spec-value">HTTP</span></div>
+    <div className="nb-spec"><span className="nb-spec-key">Clients</span><span className="nb-spec-value">Python</span></div>
+  </div>
+  <div className="nb-actions">
+    <a className="nb-btn nb-btn-sm" href="/events/broker">Read docs</a>
+    <a className="nb-btn nb-btn-sm nb-btn-outline" href="/events/python-client">Python client</a>
+  </div>
+</div>
+
+</div>
+
+<p className="nb-section-lede" style={{ marginTop: "1.5rem" }}>To move OLAP tables to OLTP, use the <a href="/operations/backup-and-migration#move-olap-tables-to-oltp">offline export and import commands</a>.</p>
+
+</div>
+
+<div className="nb-section">
+
+<h2 className="nb-section-title" id="jump-straight-in">Jump straight in</h2>
+
+<p className="nb-section-lede">Try the cache, events, and streaming clients from Python.</p>
+
+<div className="nb-try">
+
+<Tabs>
+<Tab title="Cache">
+
+<div className="nb-try-panel">
+<div>
+
+```python
+from nabedra.cache import Cache
+
+with Cache.connect("redis://127.0.0.1:6379", namespace="catalog") as cache:
+    cache.set("sku:42", b"in stock", ttl_ms=30_000)
+    value = cache.get("sku:42")
+    print("cache miss" if value is None else value.decode("utf-8"))
+```
+
+</div>
+<div>
+
+<h3 className="nb-try-title">Nabedra Cache</h3>
+
+<p className="nb-try-lede">Store bytes by key with an expiry, and read them back from Python, TypeScript, or any RESP2 client.</p>
+
+<ul className="nb-checks">
+  <li>Expiring values and atomic counters</li>
+  <li>TLS and access controls</li>
+  <li>Keys up to 250 bytes, values up to 1 MiB</li>
+</ul>
+
+<div className="nb-actions nb-actions-tight">
+  <a className="nb-btn nb-btn-sm nb-btn-outline" href="/cache/clients">Read docs</a>
+</div>
+
+</div>
+</div>
+
+</Tab>
+<Tab title="Events">
+
+<div className="nb-try-panel">
+<div>
+
+```python
+import os
+from uuid import uuid4
+
+from nabedra.events import Events
+
+producer = Events(
+    "http://127.0.0.1:18080",
+    token=os.environ["NABEDRA_EVENTS_PUBLISH_TOKEN"],
+    allow_insecure=True,
+)
+published = producer.publish(
+    "orders", partition=0, event_id=uuid4(), data={"order_id": "A-42"},
+)
+print(published.offset)
+```
+
+</div>
+<div>
+
+<h3 className="nb-try-title">Nabedra Events</h3>
+
+<p className="nb-try-lede">Publish to a topic partition, then claim a subscription and acknowledge what you processed.</p>
+
+<ul className="nb-checks">
+  <li>Retry a publish safely with the same event UUID</li>
+  <li>Leased subscription partitions</li>
+  <li>Supervised sink into OLAP tables</li>
+</ul>
+
+<div className="nb-actions nb-actions-tight">
+  <a className="nb-btn nb-btn-sm nb-btn-outline" href="/events/python-client">Read docs</a>
+</div>
+
+</div>
+</div>
+
+</Tab>
+<Tab title="Streaming">
+
+<div className="nb-try-panel">
+<div>
+
+```python
+from nabedra import Database, col
+
+db = Database("https://nabedra.example", database="ml", mode="olap")
+query = (
+    db.table("training_examples")
+    .query()
+    .where((col("split") == "train") & (col("weight") > 0.0))
+    .select("x1", "x2", "label")
+)
+
+with query.stream(batch_rows=64) as batches:
+    for rows in batches:
+        print(rows)
+```
+
+</div>
+<div>
+
+<h3 className="nb-try-title">Stream OLAP batches</h3>
+
+<p className="nb-try-lede">Read rows or Arrow batches in primary-key order from a pinned OLAP snapshot.</p>
+
+<ul className="nb-checks">
+  <li>Worker prefetches the next batch</li>
+  <li>Arrow batches for PyTorch</li>
+  <li>Shard data across training ranks</li>
+</ul>
+
+<div className="nb-actions nb-actions-tight">
+  <a className="nb-btn nb-btn-sm nb-btn-outline" href="/python/streaming">Read docs</a>
+</div>
+
+</div>
+</div>
+
+</Tab>
+</Tabs>
+
+</div>
+</div>
+
+<p className="nb-footnote">This site documents the source at <a href="https://github.com/zPy52/nabedra-database/tree/8ce51c071f2781b425544b6b45b4d2b73fc1a158"><code>8ce51c0</code></a>. Follow <a href="/guides/installation">Installation</a> for the latest published packages or the source archive for preview features.</p>
