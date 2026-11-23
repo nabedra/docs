@@ -568,6 +568,11 @@ samp {
   color: var(--nb-fg) !important;
 }
 
+/* Hide the sticky "Ask a question" bar. */
+[data-assistant-bar] {
+  display: none;
+}
+
 /* ── Pagination and footer ──────────────────────────────────────────────── */
 
 #pagination a {
