@@ -16,7 +16,7 @@ edits.
    Use the requested PR, commit range, branch, or checkout when given. Otherwise inspect the
    sibling `../nabedra-database` checkout and compare the documented revision with its current
    state. Inspect `git status --short` so relevant staged, unstaged, and new files enter the
-   comparison. In another workspace, use the available checkout or the `zPy52/nabedra-database`
+   comparison. In another workspace, use the available checkout or the `nabedra/database`
    remote. Record the base, target, and any uncommitted scope. Leave the source checkout as you
    found it. If evidence is missing, carry on with claims you can verify and report the gap.
 2. Inspect the diff and trace affected behavior to implementation, public types, CLI help,

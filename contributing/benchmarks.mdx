@@ -7,11 +7,11 @@ The repository captures commands, build revisions, and workloads alongside its m
 
 | Evidence | What was measured |
 | --- | --- |
-| [OLAP scheduling](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md) | Local CPU and mixed-resource worker pools, HTTP completion, queue wait, compute occupancy and resource accounting. |
-| [OLAP stream prefetch](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/evidence/olap-streaming/benchmark.md) | Prefetch depths zero to two on Linux Docker under CPU and memory limits, with dense and sparse scans and a CPU PyTorch consumer. |
-| [OLTP local behavior](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) | RF1 operation parity, committed-data restart behavior, former OLAP table-limit regressions and loopback latency samples. |
-| [Events broker load](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/tests/evidence/README.md) | Local broker acceptance and bounded EV09 load measurements. |
-| [Gateway overhead](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md#gateway-overhead) | Direct versus gateway request timing for the recorded HTTP fixture. |
+| [OLAP scheduling](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md) | Local CPU and mixed-resource worker pools, HTTP completion, queue wait, compute occupancy and resource accounting. |
+| [OLAP stream prefetch](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/evidence/olap-streaming/benchmark.md) | Prefetch depths zero to two on Linux Docker under CPU and memory limits, with dense and sparse scans and a CPU PyTorch consumer. |
+| [OLTP local behavior](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) | RF1 operation parity, committed-data restart behavior, former OLAP table-limit regressions and loopback latency samples. |
+| [Events broker load](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/tests/evidence/README.md) | Local broker acceptance and bounded EV09 load measurements. |
+| [Gateway overhead](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md#gateway-overhead) | Direct versus gateway request timing for the recorded HTTP fixture. |
 
 ## Reproduce scheduler measurements
 

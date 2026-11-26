@@ -66,7 +66,7 @@ In Bash or Zsh, use `curl` and `tar` to extract the source revision documented o
 nabedra_download="$(mktemp -d)"
 nabedra_source="$nabedra_download/source"
 mkdir "$nabedra_source"
-curl -fLsS https://github.com/zPy52/nabedra-database/archive/8ce51c071f2781b425544b6b45b4d2b73fc1a158.tar.gz \
+curl -fLsS https://github.com/nabedra/database/archive/8ce51c071f2781b425544b6b45b4d2b73fc1a158.tar.gz \
   -o "$nabedra_download/nabedra-database.tar.gz" &&
   tar -xzf "$nabedra_download/nabedra-database.tar.gz" \
     --strip-components=1 -C "$nabedra_source"
@@ -142,6 +142,6 @@ docker build --build-arg NABEDRA_ENGINE=cache --target cache -t nabedra:cache "$
 
 </CodeGroup>
 
-The OLAP image runs the Python CLI. The OLTP and Cache images run `nabedra-db`. Use `--build-arg NABEDRA_S3=true` or `false` to override the S3 default for OLAP or OLTP. The Cache image uses `NABEDRA_S3=false`. [Dockerfile](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/Dockerfile)
+The OLAP image runs the Python CLI. The OLTP and Cache images run `nabedra-db`. Use `--build-arg NABEDRA_S3=true` or `false` to override the S3 default for OLAP or OLTP. The Cache image uses `NABEDRA_S3=false`. [Dockerfile](https://github.com/nabedra/database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/Dockerfile)
 
 The Cache image reports a version ending in `cache`. [Start the Cache container](/server/cache#start-cache-in-docker)
