@@ -67,7 +67,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 For deployment, use a workload role for control storage, verified TLS for external API and worker links, and an advertise address reachable by separate workers. Separate workers use `database worker --bootstrap /run/secrets/worker.json`. Run these processes under your service manager.
 
-The recorded CLI and gateway checkpoint passed fresh-prefix installation and 13 live-S3 assertions. The run covered worker enrollment, database isolation, replay, receipt authorization, signal drain and catalog migration. See the [execution ledger](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md) for commands, failure regressions and scope. Live STS rotation, IAM revocation, worker crash recovery and full scheduler/load acceptance remain separate.
+The recorded CLI and gateway checkpoint passed fresh-prefix installation and 13 live-S3 assertions. The run covered worker enrollment, database isolation, replay, receipt authorization, signal drain and catalog migration. See the [execution ledger](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/cli-serverless-evidence.md) for commands, failure regressions and scope. Live STS rotation, IAM revocation, worker crash recovery and full scheduler/load acceptance remain separate.
 
 ## Local process acceptance
 
@@ -99,7 +99,7 @@ The process fixture uses the HTTP object backend. Supervised OLAP supports heter
 The scheduling, failure, and provider fixtures are
 `scripts/acceptance_scheduler.py`, `scripts/acceptance_scheduler_load.py`, and
 `scripts/acceptance_providers.py`. Their case mappings and execution results are
-recorded in [scheduler evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md).
+recorded in [scheduler evidence](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/scheduler-evidence.md).
 See [provider configuration](/server/providers) for managed
 workers and the live-infrastructure verification boundary. Signal shutdown drains
 owned local work; provider termination additionally requires a distributed idle

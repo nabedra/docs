@@ -171,12 +171,12 @@
     "primary": {
       "type": "button",
       "label": "GitHub",
-      "href": "https://github.com/zPy52/nabedra-database"
+      "href": "https://github.com/nabedra/database"
     }
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/zPy52/nabedra-database"
+      "github": "https://github.com/nabedra/database"
     }
   }
 }

@@ -3,13 +3,13 @@ title: "OLTP serialization and recovery"
 description: "Read the conditions under which compatible row operations preserve serialization and real-time order."
 ---
 
-This is the serialization argument required by P0 of [the OLTP plan](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/oltp-engine.md). It describes the target distributed protocol. The current standalone and single-group consensus implementations do not establish these assumptions for multiple shards. Read [the executed evidence](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) separately.
+This is the serialization argument required by P0 of [the OLTP plan](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/oltp-engine.md). It describes the target distributed protocol. The current standalone and single-group consensus implementations do not establish these assumptions for multiple shards. Read [the executed evidence](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/docs/testing/oltp-evidence.md) separately.
 
 ## Supported operations
 
 Each existing call is one transaction. Read-only operations may scan predicates, order rows and apply a limit. A mutating call reads and writes a known bounded set of primary keys, including absence checks. Create/drop also require lifecycle guards. There are no predicate mutations, multi-call transactions or application read-modify-write transactions. Adding those operations invalidates this restricted argument unless their read and predicate dependencies receive additional validation.
 
-The standalone argument is recorded in [the local engine design](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/oltp/DESIGN.md). A single replicated group can order atomic operations directly and authorize reads with a fresh quorum barrier plus applied-position wait. That does not establish a common snapshot or atomic commit across independent groups.
+The standalone argument is recorded in [the local engine design](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/oltp/DESIGN.md). A single replicated group can order atomic operations directly and authorize reads with a fresh quorum barrier plus applied-position wait. That does not establish a common snapshot or atomic commit across independent groups.
 
 The current single-group dependency spike logs deterministic `Operation` commands. It is not the target cold-start implementation: replaying such a command still evaluates an application operation. The production command families must instead replay fixed prepared storage changes and authoritative decisions. Control, timestamp and status command types cannot contain application `Request`, `Operation` or `Row` payloads.
 
