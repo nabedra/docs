@@ -28,4 +28,4 @@ Send the lease as `X-Events-Lease: <lease>` with poll, renew, checkpoint, and re
 
 Use `POST /v1/admin/operations` with an `operation_id` UUID and an `action` object containing its `type` and fields. Observe `GET /v1/admin/operations/{id}` before making a dependent change. See [broker configuration and actions](/events/broker) for creation, placement, retention, and recovery examples.
 
-[Public routes](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/http.rs) · [Operator routes](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/control/operate.rs)
+[Public routes](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/http.rs) · [Operator routes](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/events/src/control/operate.rs)

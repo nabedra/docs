@@ -81,4 +81,4 @@ Each client has a pool of 16 persistent connections by default, with one request
 
 Import both clients' error types from `nabedra`. `AuthenticationError` indicates rejected credentials or missing permissions. `OverloadedError` indicates that the client or server rejected the operation before execution. If the connection fails after the client begins sending a write, or the server returns an unrecognized mutation reply, the client raises `UnknownOutcomeError`. Reconcile the key with your application state before attempting the write again. Repeating `increment` may apply the delta twice. Invalid cluster discovery or redirects raise `ProtocolError`.
 
-See the [shared Cache client contract](https://github.com/zPy52/nabedra-database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/cache-contract/README.md) for the full error map, key encoding, and cluster retry rules.
+See the [shared Cache client contract](https://github.com/nabedra/database/blob/8ce51c071f2781b425544b6b45b4d2b73fc1a158/orm/cache-contract/README.md) for the full error map, key encoding, and cluster retry rules.

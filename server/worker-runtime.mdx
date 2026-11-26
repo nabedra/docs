@@ -34,7 +34,7 @@ cold start are separate operations.
 
 For local OLAP `serve`, `--execution-config PATH` and `--resources-config PATH` read
 strict JSON configuration objects matching
-[the scheduling design](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md). Legacy
+[the scheduling design](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md). Legacy
 `--workers`, `--queue-size`, and `--partition-size` supply defaults when those
 files are absent. Distributed worker templates carry `execution` and each
 worker's `resources`; signed enrollment preserves heterogeneous CPU/RAM ceilings.
@@ -104,4 +104,4 @@ Supply complete JSON objects. These examples use the type defaults. A standalone
 
 Leave enough worker memory for queue bytes, retained results, the control reserve, and task working memory. The server validates the combined configuration at startup. Tune `partition_size` for OLAP file rewrites. A memory accounting limit sets worker admission and reservation bounds. Use deployment metrics for actual process and host memory.
 
-[Configuration types and defaults](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/config.rs)
+[Configuration types and defaults](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/server/src/config.rs)

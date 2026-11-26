@@ -3,7 +3,7 @@ title: "Scheduler test contract"
 description: "Check request admission, worker failures, publication, recovery, and provisioning against recorded scenarios."
 ---
 
-These reusable acceptance cases preserve the user's worker, queue, utilization, and fault-tolerance requirements from 2026-11-15. They specify future tests, not executed results. Use them for future scheduler, worker, storage, and autoscaling changes alongside [the design contract](https://github.com/zPy52/nabedra-database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md).
+These reusable acceptance cases preserve the user's worker, queue, utilization, and fault-tolerance requirements from 2026-11-15. They specify future tests, not executed results. Use them for future scheduler, worker, storage, and autoscaling changes alongside [the design contract](https://github.com/nabedra/database/blob/1418bad88e1df1b8c868b88889a120e37059c1c0/plans/resource-aware-scheduling.md).
 
 The queue lives in replicated worker memory. Retain accepted work through individual failures while a request copy survives. A complete worker shutdown abandons outstanding work; it does not roll back committed data. Test assertions must distinguish those outcomes from silent loss.
 
